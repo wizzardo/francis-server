@@ -31,3 +31,30 @@ dependencies {
 
     testCompile group: 'junit', name: 'junit', version: '4.11'
 }
+
+
+task fatJar(type: Jar) {
+    def revision = "git rev-parse HEAD".execute().text.trim()
+    def branchName = System.getenv().get('GIT_BRANCH')
+    if (!branchName) {
+        branchName = "git rev-parse --abbrev-ref HEAD".execute().text.trim()
+        if (branchName == revision) {
+            branchName = "git branch -a --contains ${"git rev-parse --verify HEAD".execute().text}".execute()
+                    .text.trim().readLines()
+                    .find({ it.contains('origin/') })?.with({ it.split('origin/')[1].trim() }) ?: ''
+        }
+    }
+
+    manifest {
+        attributes(
+                "Main-Class": "${{ -> project.hasProperty('mainClassName') ? mainClassName : '' }}",
+                "gitRevision": revision,
+                "gitBranch": branchName,
+                "buildTime": new Date(),
+                "version": "${{ -> version }}"
+        )
+    }
+    baseName = project.name + '-all'
+    from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+    with jar
+}
