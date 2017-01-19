@@ -1,6 +1,7 @@
 package com.wizzardo.francis;
 
-import com.wizzardo.francis.handlers.ClientWebSocketHandler;
+import com.wizzardo.francis.handlers.*;
+import com.wizzardo.francis.controllers.*;
 import com.wizzardo.http.framework.WebApplication;
 
 /**
@@ -12,7 +13,9 @@ public class App {
         WebApplication webApplication = new WebApplication(args);
         webApplication.onSetup(app -> {
             app.getUrlMapping()
-                    .append("/ws/client", ClientWebSocketHandler.class);
+                    .append("/ui/test", TestController.class, "index")
+                    .append("/ws/client", ClientWebSocketHandler.class)
+                    .append("/ws/server", ServerWebSocketHandler.class);
         });
 
         webApplication.start();

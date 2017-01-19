@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Francis test page</title>
+</head>
+<body>
+<b>Francis test page</b>
+<script>
+    var handlers = {};
+    var debug = true;
+
+    var wsEvents = {
+        onOpen: () => {
+        },
+        onClose: () => {
+        }
+    };
+
+    function log(message) {
+        if (debug)
+            console.log(message)
+    }
+
+    function connect() {
+        var https = location.protocol === 'https:';
+        var port = location.port || (https ? 443 : 80);
+        ws = new WebSocket((https ? 'wss' : 'ws') + "://" + location.hostname + ":" + port + '/ws/server');
+        ws.onopen = function () {
+            log("open");
+            if (wsEvents.onOpen)
+                wsEvents.onOpen();
+        };
+        ws.onmessage = function (e) {
+            log(e.data);
+            var data = JSON.parse(e.data);
+            handlers[data.command](data)
+        };
+        ws.onclose = function () {
+            log("closed");
+            if (wsEvents.onClose)
+                wsEvents.onClose();
+            connect();
+        };
+    }
+
+    connect();
+</script>
+</body>
+</html>
