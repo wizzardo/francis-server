@@ -16,6 +16,10 @@
         }
     };
 
+    handlers.listApps = (data) => {
+        log(data.list)
+    };
+
     function log(message) {
         if (debug)
             console.log(message)
@@ -33,7 +37,11 @@
         ws.onmessage = function (e) {
             log(e.data);
             var data = JSON.parse(e.data);
-            handlers[data.command](data)
+            var handler = handlers[data.command];
+            if (handler)
+                handler(data);
+            else
+                log("unknown command: " + data.command);
         };
         ws.onclose = function () {
             log("closed");
