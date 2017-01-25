@@ -16,7 +16,8 @@ import java.util.stream.Stream;
  * Created by wizzardo on 07/01/17.
  */
 public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSocketListener> extends DefaultWebSocketHandler<T> implements PostConstruct {
-    protected Map<String, CommandHandler> handlers = new ConcurrentHashMap<>();
+    ServerWebSocketHandler serverWebSocketHandler;
+    Map<String, CommandHandler> handlers = new ConcurrentHashMap<>();
 
     @Override
     public String name() {
@@ -47,10 +48,24 @@ public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSo
             JsonObject params = json.getAsJsonObject("params");
             params.forEach((k, v) -> listener.params.put(k, v.asString()));
         });
+        handlers.put("listClasses", (listener, json) -> {
+            serverWebSocketHandler.executeCallback(json.getAsInteger("callbackId"), json);
+        });
     }
 
     public Stream<T> connections() {
         return listeners.stream();
+    }
+
+    public void getClasses(T client, Integer callbackId) {
+        send(client, new JsonObject()
+                .append("command", "listClasses")
+                .append("callbackId", callbackId)
+        );
+    }
+
+    public void send(WebSocketListener listener, JsonObject json) {
+        listener.sendMessage(new Message(json.toString()));
     }
 
     public static class ClientWebSocketListener extends WebSocketListener {
