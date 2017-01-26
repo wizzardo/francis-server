@@ -4,4 +4,5 @@ server {
     ioWorkersCount = 1
     ttl = 60 * 60 * 1000
     context = '/'
+    websocketFrameLengthLimit = 10 * 1024 * 1024
 }

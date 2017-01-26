@@ -9,6 +9,9 @@
     var handlers = {};
     var debug = true;
 
+    var apps = [];
+    var classes = {};
+
     var wsEvents = {
         onOpen: () => {
         },
@@ -17,7 +20,12 @@
     };
 
     handlers.listApps = (data) => {
-        log(data.list)
+        log(data.list);
+        apps = data.list;
+    };
+    handlers.listClasses = (data) => {
+        log(data.list);
+        classes[data.appName] = data.list;
     };
 
     function log(message) {
@@ -35,7 +43,7 @@
                 wsEvents.onOpen();
         };
         ws.onmessage = function (e) {
-            log(e.data);
+//            log(e.data);
             var data = JSON.parse(e.data);
             var handler = handlers[data.command];
             if (handler)
