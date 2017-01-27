@@ -27,6 +27,9 @@
         log(data.list);
         classes[data.appName] = data.list;
     };
+    handlers.listMethods = (data) => {
+        log(data.list);
+    };
 
     function log(message) {
         if (debug)
@@ -44,6 +47,12 @@
         };
         ws.onmessage = function (e) {
 //            log(e.data);
+            if (e.error) {
+                log(e.error);
+                log(e.exceptionClass + ": " + e.message);
+                log(e.stacktrace)
+            }
+
             var data = JSON.parse(e.data);
             var handler = handlers[data.command];
             if (handler)

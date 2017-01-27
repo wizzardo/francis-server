@@ -51,6 +51,9 @@ public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSo
         handlers.put("listClasses", (listener, json) -> {
             serverWebSocketHandler.executeCallback(json.getAsInteger("callbackId"), json);
         });
+        handlers.put("listMethods", (listener, json) -> {
+            serverWebSocketHandler.executeCallback(json.getAsInteger("callbackId"), json);
+        });
     }
 
     public Stream<T> connections() {
@@ -61,6 +64,15 @@ public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSo
         send(client, new JsonObject()
                 .append("command", "listClasses")
                 .append("callbackId", callbackId)
+        );
+    }
+
+
+    public void getMethods(T client, String clazz, Integer callbackId) {
+        send(client, new JsonObject()
+                .append("command", "listMethods")
+                .append("callbackId", callbackId)
+                .append("class", clazz)
         );
     }
 
