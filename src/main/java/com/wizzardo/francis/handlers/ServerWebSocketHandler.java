@@ -63,11 +63,7 @@ public class ServerWebSocketHandler extends DefaultWebSocketHandler implements P
 
         handlers.put("listClasses", (listener, json) -> {
             String appName = json.getAsString("appName");
-            Optional<ClientWebSocketHandler.ClientWebSocketListener> first = clientsHandler.connections()
-                    .filter(it -> {
-                        return it.params.get("appName").equals(appName);
-                    })
-                    .findFirst();
+            Optional<ClientWebSocketHandler.ClientWebSocketListener> first = findClient(appName);
 
             JsonObject response = new JsonObject()
                     .append("command", "listClasses")
@@ -83,6 +79,41 @@ public class ServerWebSocketHandler extends DefaultWebSocketHandler implements P
                 clientsHandler.getClasses(client, id);
             }
         });
+
+        handlers.put("listMethods", (listener, json) -> {
+            String appName = json.getAsString("appName");
+            String clazz = json.getAsString("class");
+            Optional<ClientWebSocketHandler.ClientWebSocketListener> first = findClient(appName);
+
+            JsonObject response = new JsonObject()
+                    .append("command", "listMethods")
+                    .append("class", clazz)
+                    .append("appName", appName);
+
+            if (!first.isPresent()) {
+                send(listener, response.append("list", new JsonArray()));
+            } else {
+                Integer id = putCallback(data -> {
+                    if (data.get("error") == null)
+                        send(listener, response.append("list", data.getAsJsonArray("list")));
+                    else
+                        send(listener, response
+                                .append("list", data.getAsJsonArray("list"))
+                                .append("error", data.get("error"))
+                                .append("message", data.get("message"))
+                                .append("stacktrace", data.get("stacktrace"))
+                        );
+                });
+                ClientWebSocketHandler.ClientWebSocketListener client = first.get();
+                clientsHandler.getMethods(client, clazz, id);
+            }
+        });
+    }
+
+    protected Optional<ClientWebSocketHandler.ClientWebSocketListener> findClient(String appName) {
+        return clientsHandler.connections()
+                .filter(it -> appName.equals(it.params.get("appName")))
+                .findFirst();
     }
 
     protected Integer putCallback(Callback callback) {
