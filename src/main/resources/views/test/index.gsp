@@ -48,9 +48,9 @@
         ws.onmessage = function (e) {
 //            log(e.data);
             if (e.error) {
-                log(e.error);
-                log(e.exceptionClass + ": " + e.message);
-                log(e.stacktrace)
+                log(e.error.exceptionClass + ": " + e.error.message);
+                log(e.error.stacktrace);
+                log(e.error.case);
             }
 
             var data = JSON.parse(e.data);

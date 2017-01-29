@@ -108,6 +108,22 @@ public class ServerWebSocketHandler extends DefaultWebSocketHandler implements P
                 clientsHandler.getMethods(client, clazz, id);
             }
         });
+
+        handlers.put("addTransformation", (listener, json) -> {
+            String appName = json.getAsString("appName");
+            String clazz = json.getAsString("class");
+            String method = json.getAsString("method");
+            String methodDescriptor = json.getAsString("methodDescriptor");
+            String before = json.getAsString("before");
+            String after = json.getAsString("after");
+            long id = json.getAsLong("id");
+
+
+            Optional<ClientWebSocketHandler.ClientWebSocketListener> first = findClient(appName);
+
+            ClientWebSocketHandler.ClientWebSocketListener client = first.get();
+            clientsHandler.addTransformation(client, id, clazz, method, methodDescriptor, before, after, json.getAsJsonArray("localVariables"));
+        });
     }
 
     protected Optional<ClientWebSocketHandler.ClientWebSocketListener> findClient(String appName) {
