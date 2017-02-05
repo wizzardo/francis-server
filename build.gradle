@@ -1,3 +1,5 @@
+import java.text.SimpleDateFormat
+
 apply plugin: 'java'
 apply plugin: 'application'
 
@@ -50,8 +52,9 @@ task fatJar(type: Jar) {
                 "Main-Class": "${{ -> project.hasProperty('mainClassName') ? mainClassName : '' }}",
                 "gitRevision": revision,
                 "gitBranch": branchName,
-                "buildTime": new Date(),
-                "version": "${{ -> version }}"
+                "buildTime": new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").with({ it.setTimeZone(TimeZone.getTimeZone("UTC")); it }).format(new Date()),
+                "version": "${{ -> version }}",
+                "appName": project.name
         )
     }
     baseName = project.name + '-all'
