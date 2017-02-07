@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
 /**
  * Created by wizzardo on 07/01/17.
  */
-public class ServerWebSocketHandler extends DefaultWebSocketHandler implements PostConstruct {
+public class ControlWebSocketHandler extends DefaultWebSocketHandler implements PostConstruct {
     ClientWebSocketHandler<ClientWebSocketHandler.ClientWebSocketListener> clientsHandler;
     Map<String, CommandHandler> handlers = new ConcurrentHashMap<>();
     Cache<Integer, Callback> callbacks = new Cache<>("callbacks", 60);

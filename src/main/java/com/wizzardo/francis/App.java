@@ -15,7 +15,7 @@ public class App {
             app.getUrlMapping()
                     .append("/ui/test", TestController.class, "index")
                     .append("/ws/client", ClientWebSocketHandler.class)
-                    .append("/ws/server", ServerWebSocketHandler.class);
+                    .append("/ws/server", ControlWebSocketHandler.class);
         });
 
         webApplication.start();
