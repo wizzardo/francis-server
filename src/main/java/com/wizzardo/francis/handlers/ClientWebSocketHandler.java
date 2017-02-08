@@ -1,5 +1,6 @@
 package com.wizzardo.francis.handlers;
 
+import com.wizzardo.francis.services.DataService;
 import com.wizzardo.http.HttpConnection;
 import com.wizzardo.http.framework.di.PostConstruct;
 import com.wizzardo.http.websocket.DefaultWebSocketHandler;
@@ -19,6 +20,7 @@ import java.util.stream.Stream;
 public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSocketListener> extends DefaultWebSocketHandler<T> implements PostConstruct {
     ControlWebSocketHandler controlWebSocketHandler;
     Map<String, CommandHandler> handlers = new ConcurrentHashMap<>();
+    DataService dataService;
 
     @Override
     public String name() {
@@ -48,6 +50,10 @@ public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSo
         handlers.put("setParameters", (listener, json) -> {
             JsonObject params = json.getAsJsonObject("params");
             params.forEach((k, v) -> listener.params.put(k, v.asString()));
+
+            Long appId = dataService.saveApplicationIfNot(listener.params.get("appName"));
+            listener.applicationId = appId;
+            listener.instanceId = dataService.saveInstanceIfNot(appId, listener.params);
         });
         handlers.put("listClasses", (listener, json) -> {
             controlWebSocketHandler.executeCallback(json.getAsInteger("callbackId"), json);
@@ -96,6 +102,8 @@ public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSo
 
     public static class ClientWebSocketListener extends WebSocketListener {
         final Map<String, String> params = new ConcurrentHashMap<>();
+        public Long applicationId;
+        public Long instanceId;
 
         public ClientWebSocketListener(HttpConnection connection, WebSocketHandler webSocketHandler) {
             super(connection, webSocketHandler);
