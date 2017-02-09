@@ -1,11 +1,13 @@
 package com.wizzardo.francis.services;
 
+import com.wizzardo.francis.domain.Transformation;
 import com.wizzardo.http.framework.di.Service;
 import com.wizzardo.tools.collections.flow.Flow;
 import com.wizzardo.tools.interfaces.Mapper;
 import com.wizzardo.tools.misc.Unchecked;
 
 import java.sql.ResultSet;
+import java.util.List;
 import java.util.Map;
 
 import static com.wizzardo.francis.services.DBService.args;
@@ -21,9 +23,7 @@ public class DataService implements Service {
     DBService dbService;
 
     public boolean isApplicationExists(String appName) {
-        return dbService.executeQuery("select id from application where name = ? limit 1", args(appName), flow ->
-                flow.count().get() == 1
-        );
+        return findApplicationId(appName) != null;
     }
 
     public Long findApplicationId(String appName) {
@@ -58,5 +58,40 @@ public class DataService implements Service {
             return instanceId;
 
         return saveInstance(applicationId, params.get("version"), params.get("mac"), params.get("ip"), params.get("hostname"));
+    }
+
+
+    public List<Transformation> findAllTransformationsByApplicationId(long applicationId) {
+        return dbService.executeQuery("select" +
+                " id," +
+                " application_id," +
+                " version," +
+                " last_updated," +
+                " date_created," +
+                " class_name," +
+                " method," +
+                " method_descriptor," +
+                " before," +
+                " after," +
+                " variables " +
+                " from transformation where application_id = ?", args(applicationId), flow -> flow
+                .map(rs -> Unchecked.call(() -> {
+                    Transformation t = new Transformation();
+                    t.id = rs.getLong(1);
+                    t.applicationId = rs.getLong(2);
+                    t.version = rs.getLong(3);
+                    t.lastUpdated = rs.getDate(4);
+                    t.dateCreated = rs.getDate(5);
+                    t.className = rs.getString(6);
+                    t.method = rs.getString(7);
+                    t.methodDescriptor = rs.getString(8);
+                    t.before = rs.getString(9);
+                    t.after = rs.getString(10);
+                    t.variables = rs.getString(11);
+                    return t;
+                }))
+                .toList()
+                .get()
+        );
     }
 }
