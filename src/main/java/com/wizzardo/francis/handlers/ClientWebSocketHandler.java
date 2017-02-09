@@ -1,5 +1,6 @@
 package com.wizzardo.francis.handlers;
 
+import com.wizzardo.francis.domain.Transformation;
 import com.wizzardo.francis.services.DataService;
 import com.wizzardo.http.HttpConnection;
 import com.wizzardo.http.framework.di.PostConstruct;
@@ -10,9 +11,12 @@ import com.wizzardo.tools.json.JsonArray;
 import com.wizzardo.tools.json.JsonObject;
 import com.wizzardo.tools.json.JsonTools;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
+
+import static com.wizzardo.tools.misc.With.with;
 
 /**
  * Created by wizzardo on 07/01/17.
@@ -61,6 +65,13 @@ public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSo
         handlers.put("listMethods", (listener, json) -> {
             controlWebSocketHandler.executeCallback(json.getAsInteger("callbackId"), json);
         });
+        handlers.put("listTransformations", (listener, json) -> {
+            List<Transformation> transformations = dataService.findAllTransformationsByApplicationId(listener.applicationId);
+            send(listener, with(new ListTransformationsCommandResponse(), it -> {
+                it.command = "listTransformationsResponse";
+                it.list = transformations;
+            }));
+        });
     }
 
     public Stream<T> connections() {
@@ -85,6 +96,10 @@ public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSo
 
     public void send(WebSocketListener listener, JsonObject json) {
         listener.sendMessage(new Message(json.toString()));
+    }
+
+    public void send(WebSocketListener listener, CommandResponse response) {
+        listener.sendMessage(new Message(JsonTools.serialize(response)));
     }
 
     public void addTransformation(T client, long id, String clazz, String method, String methodDescriptor, String before, String after, JsonArray localVariables) {
@@ -117,5 +132,13 @@ public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSo
 
     protected interface CommandHandler {
         void handle(ClientWebSocketListener listener, JsonObject json);
+    }
+
+    static class CommandResponse {
+        String command;
+    }
+
+    static class ListTransformationsCommandResponse extends CommandResponse {
+        List<Transformation> list;
     }
 }
