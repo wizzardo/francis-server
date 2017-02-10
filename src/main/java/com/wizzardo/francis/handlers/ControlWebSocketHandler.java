@@ -122,7 +122,7 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
             Optional<ClientWebSocketHandler.ClientWebSocketListener> first = findClient(appName);
 
             ClientWebSocketHandler.ClientWebSocketListener client = first.get();
-            clientsHandler.addTransformation(client, id, clazz, method, methodDescriptor, before, after, json.getAsJsonArray("localVariables"));
+            clientsHandler.addTransformation(client, id, clazz, method, methodDescriptor, before, after, json.getAsJsonArray("variables"));
         });
     }
 

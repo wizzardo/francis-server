@@ -65,10 +65,10 @@ public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSo
         handlers.put("listMethods", (listener, json) -> {
             controlWebSocketHandler.executeCallback(json.getAsInteger("callbackId"), json);
         });
-        handlers.put("listTransformations", (listener, json) -> {
+        handlers.put("getTransformations", (listener, json) -> {
             List<Transformation> transformations = dataService.findAllTransformationsByApplicationId(listener.applicationId);
             send(listener, with(new ListTransformationsCommandResponse(), it -> {
-                it.command = "listTransformationsResponse";
+                it.command = "getTransformationsResponse";
                 it.list = transformations;
             }));
         });
@@ -102,16 +102,16 @@ public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSo
         listener.sendMessage(new Message(JsonTools.serialize(response)));
     }
 
-    public void addTransformation(T client, long id, String clazz, String method, String methodDescriptor, String before, String after, JsonArray localVariables) {
+    public void addTransformation(T client, long id, String clazz, String method, String methodDescriptor, String before, String after, JsonArray variables) {
         send(client, new JsonObject()
                 .append("command", "addTransformation")
                 .append("id", id)
-                .append("class", clazz)
+                .append("className", clazz)
                 .append("method", method)
                 .append("methodDescriptor", methodDescriptor)
                 .append("before", before)
                 .append("after", after)
-                .append("localVariables", localVariables)
+                .append("variables", variables)
         );
     }
 
