@@ -7,7 +7,6 @@ import com.wizzardo.http.framework.di.PostConstruct;
 import com.wizzardo.http.websocket.DefaultWebSocketHandler;
 import com.wizzardo.http.websocket.Message;
 import com.wizzardo.http.websocket.WebSocketHandler;
-import com.wizzardo.tools.json.JsonArray;
 import com.wizzardo.tools.json.JsonObject;
 import com.wizzardo.tools.json.JsonTools;
 
@@ -102,16 +101,16 @@ public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSo
         listener.sendMessage(new Message(JsonTools.serialize(response)));
     }
 
-    public void addTransformation(T client, long id, String clazz, String method, String methodDescriptor, String before, String after, JsonArray variables) {
+    public void addTransformation(T client, Transformation transformation) {
         send(client, new JsonObject()
                 .append("command", "addTransformation")
-                .append("id", id)
-                .append("className", clazz)
-                .append("method", method)
-                .append("methodDescriptor", methodDescriptor)
-                .append("before", before)
-                .append("after", after)
-                .append("variables", variables)
+                .append("id", transformation.id)
+                .append("className", transformation.className)
+                .append("method", transformation.method)
+                .append("methodDescriptor", transformation.methodDescriptor)
+                .append("before", transformation.before)
+                .append("after", transformation.after)
+                .append("variables", transformation.variables)
         );
     }
 

@@ -1,5 +1,7 @@
 package com.wizzardo.francis.handlers;
 
+import com.wizzardo.francis.domain.Transformation;
+import com.wizzardo.francis.services.DataService;
 import com.wizzardo.http.framework.di.PostConstruct;
 import com.wizzardo.http.websocket.DefaultWebSocketHandler;
 import com.wizzardo.http.websocket.Message;
@@ -13,7 +15,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Created by wizzardo on 07/01/17.
@@ -23,6 +27,7 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
     Map<String, CommandHandler> handlers = new ConcurrentHashMap<>();
     Cache<Integer, Callback> callbacks = new Cache<>("callbacks", 60);
     AtomicInteger callbackCounter = new AtomicInteger();
+    DataService dataService;
 
     @Override
     public String name() {
@@ -111,18 +116,20 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
 
         handlers.put("addTransformation", (listener, json) -> {
             String appName = json.getAsString("appName");
-            String clazz = json.getAsString("class");
-            String method = json.getAsString("method");
-            String methodDescriptor = json.getAsString("methodDescriptor");
-            String before = json.getAsString("before");
-            String after = json.getAsString("after");
-            long id = json.getAsLong("id");
 
+            Long applicationId = dataService.findApplicationId(appName);
+            Transformation t = new Transformation();
+            t.applicationId = applicationId;
+            t.className = json.getAsString("className");
+            t.method = json.getAsString("method");
+            t.methodDescriptor = json.getAsString("methodDescriptor");
+            t.before = json.getAsString("before");
+            t.after = json.getAsString("after");
+            t.variables = json.getAsJsonArray("variables").toString();
+            dataService.saveTransformation(t);
 
-            Optional<ClientWebSocketHandler.ClientWebSocketListener> first = findClient(appName);
-
-            ClientWebSocketHandler.ClientWebSocketListener client = first.get();
-            clientsHandler.addTransformation(client, id, clazz, method, methodDescriptor, before, after, json.getAsJsonArray("variables"));
+            findAllClients(it -> it.applicationId.equals(applicationId))
+                    .forEach(it -> clientsHandler.addTransformation(it, t));
         });
     }
 
@@ -130,6 +137,10 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
         return clientsHandler.connections()
                 .filter(it -> appName.equals(it.params.get("appName")))
                 .findFirst();
+    }
+
+    protected Stream<ClientWebSocketHandler.ClientWebSocketListener> findAllClients(Predicate<ClientWebSocketHandler.ClientWebSocketListener> filter) {
+        return clientsHandler.connections().filter(filter);
     }
 
     protected Integer putCallback(Callback callback) {
