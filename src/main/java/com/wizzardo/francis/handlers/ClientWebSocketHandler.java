@@ -114,6 +114,14 @@ public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSo
         );
     }
 
+    public void deleteTransformation(T client, Transformation transformation) {
+        send(client, new JsonObject()
+                .append("command", "deleteTransformation")
+                .append("id", transformation.id)
+                .append("className", transformation.className)
+        );
+    }
+
     public static class ClientWebSocketListener extends WebSocketListener {
         final Map<String, String> params = new ConcurrentHashMap<>();
         public Long applicationId;

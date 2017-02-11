@@ -113,8 +113,8 @@ public class DataService implements Service {
         return t;
     }
 
-    public void updateTransformation(Transformation t) {
-        dbService.executeUpdate("update transformation set " +
+    public boolean updateTransformation(Transformation t) {
+        return 1 == dbService.executeUpdate("update transformation set " +
                         " version = version + 1," +
                         " last_updated = now()," +
                         " class_name = ?," +
@@ -130,6 +130,44 @@ public class DataService implements Service {
     }
 
     public boolean deleteTransformation(Transformation t) {
-        return 1 == dbService.executeUpdate("delete from transformation where id = ?", args(t.id));
+        return deleteTransformation(t.id);
+    }
+
+    public boolean deleteTransformation(long id) {
+        return 1 == dbService.executeUpdate("delete from transformation where id = ?", args(id));
+    }
+
+    public Transformation getTransformation(Long id) {
+        return dbService.executeQuery("select" +
+                " id," +
+                " application_id," +
+                " version," +
+                " last_updated," +
+                " date_created," +
+                " class_name," +
+                " method," +
+                " method_descriptor," +
+                " before," +
+                " after," +
+                " variables " +
+                " from transformation where id = ?", args(id), flow -> flow
+                .map(rs -> Unchecked.call(() -> {
+                    Transformation t = new Transformation();
+                    t.id = rs.getLong(1);
+                    t.applicationId = rs.getLong(2);
+                    t.version = rs.getLong(3);
+                    t.lastUpdated = rs.getDate(4);
+                    t.dateCreated = rs.getDate(5);
+                    t.className = rs.getString(6);
+                    t.method = rs.getString(7);
+                    t.methodDescriptor = rs.getString(8);
+                    t.before = rs.getString(9);
+                    t.after = rs.getString(10);
+                    t.variables = rs.getString(11);
+                    return t;
+                }))
+                .first()
+                .get()
+        );
     }
 }

@@ -10,6 +10,7 @@ import com.wizzardo.tools.json.JsonArray;
 import com.wizzardo.tools.json.JsonObject;
 import com.wizzardo.tools.json.JsonTools;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -46,9 +47,13 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
         System.out.println("on message: " + s);
         JsonObject json = JsonTools.parse(s).asJsonObject();
         CommandHandler handler = handlers.get(json.getAsString("command"));
-        if (handler != null)
-            handler.handle(listener, json);
-        else
+        if (handler != null) {
+            try {
+                handler.handle(listener, json);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        } else
             System.out.println("unknown command: " + json.getAsString("command"));
     }
 
@@ -131,6 +136,45 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
             findAllClients(it -> it.applicationId.equals(applicationId))
                     .forEach(it -> clientsHandler.addTransformation(it, t));
         });
+
+        handlers.put("updateTransformation", (listener, json) -> {
+            String appName = json.getAsString("appName");
+
+            Long applicationId = dataService.findApplicationId(appName);
+            Transformation t = new Transformation();
+            t.id = json.getAsLong("id");
+            t.applicationId = applicationId;
+            t.className = json.getAsString("className");
+            t.method = json.getAsString("method");
+            t.methodDescriptor = json.getAsString("methodDescriptor");
+            t.before = json.getAsString("before");
+            t.after = json.getAsString("after");
+            t.variables = json.getAsJsonArray("variables").toString();
+            if (!dataService.updateTransformation(t))
+                throw new IllegalArgumentException("Transformation " + t.id + " wasn't updated");
+
+            findAllClients(it -> it.applicationId.equals(applicationId))
+                    .forEach(it -> clientsHandler.addTransformation(it, t));
+        });
+
+        handlers.put("listTransformations", (listener, json) -> {
+            String appName = json.getAsString("appName");
+
+            Long applicationId = dataService.findApplicationId(appName);
+            List<Transformation> transformations = dataService.findAllTransformationsByApplicationId(applicationId);
+
+            send(listener, new ListTransformationsResponse(transformations));
+        });
+
+        handlers.put("deleteTransformation", (listener, json) -> {
+            Long id = json.getAsLong("id");
+            Transformation t = dataService.getTransformation(id);
+            if (!dataService.deleteTransformation(id))
+                throw new IllegalArgumentException("Transformation " + id + " wasn't deleted");
+
+            findAllClients(it -> it.applicationId.equals(t.applicationId))
+                    .forEach(it -> clientsHandler.deleteTransformation(it, t));
+        });
     }
 
     protected Optional<ClientWebSocketHandler.ClientWebSocketListener> findClient(String appName) {
@@ -167,11 +211,28 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
         listener.sendMessage(new Message(json.toString()));
     }
 
+    public void send(WebSocketListener listener, CommandResponse response) {
+        listener.sendMessage(new Message(JsonTools.serialize(response)));
+    }
+
     protected interface CommandHandler {
         void handle(WebSocketListener listener, JsonObject json);
     }
 
     interface Callback {
         void execute(JsonObject json);
+    }
+
+    static class CommandResponse {
+        String command;
+    }
+
+    static class ListTransformationsResponse extends CommandResponse {
+        List<Transformation> list;
+
+        public ListTransformationsResponse(List<Transformation> transformations) {
+            command = "listTransformations";
+            list = transformations;
+        }
     }
 }
