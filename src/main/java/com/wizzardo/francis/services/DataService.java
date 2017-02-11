@@ -94,4 +94,42 @@ public class DataService implements Service {
                 .get()
         );
     }
+
+    public Transformation saveTransformation(Transformation t) {
+        t.id = dbService.executeQuery("insert into transformation (" +
+                        " application_id," +
+                        " version," +
+                        " last_updated," +
+                        " date_created," +
+                        " class_name," +
+                        " method," +
+                        " method_descriptor," +
+                        " before," +
+                        " after," +
+                        " variables " +
+                        ") values (?,?,now(),now(),?, ?,?,?,?,?) RETURNING ID",
+                args(t.applicationId, t.version, t.className,
+                        t.method, t.methodDescriptor, t.before, t.after, t.variables), FLOW_FIRST_LONG);
+        return t;
+    }
+
+    public void updateTransformation(Transformation t) {
+        dbService.executeUpdate("update transformation set " +
+                        " version = version + 1," +
+                        " last_updated = now()," +
+                        " class_name = ?," +
+                        " method = ?," +
+                        " method_descriptor = ?," +
+                        " before = ?," +
+                        " after = ?," +
+                        " variables = ?" +
+                        " where" +
+                        " id = ?",
+                args(t.className, t.method, t.methodDescriptor,
+                        t.before, t.after, t.variables, t.id));
+    }
+
+    public boolean deleteTransformation(Transformation t) {
+        return 1 == dbService.executeUpdate("delete from transformation where id = ?", args(t.id));
+    }
 }
