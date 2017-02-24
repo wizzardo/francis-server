@@ -7,13 +7,13 @@ import com.wizzardo.http.websocket.DefaultWebSocketHandler;
 import com.wizzardo.http.websocket.Message;
 import com.wizzardo.tools.cache.Cache;
 import com.wizzardo.tools.json.JsonArray;
+import com.wizzardo.tools.json.JsonItem;
 import com.wizzardo.tools.json.JsonObject;
 import com.wizzardo.tools.json.JsonTools;
+import com.wizzardo.tools.misc.Unchecked;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.io.FileWriter;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
@@ -53,8 +53,16 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
             } catch (Exception e) {
                 e.printStackTrace();
             }
-        } else
+        } else {
+            send(listener, new JsonObject()
+                    .append("error", "unknown command: " + json.getAsString("command"))
+                    .append("command", "help")
+                    .append("commands", new JsonArray()
+                            .appendAll(handlers.keySet())
+                    )
+            );
             System.out.println("unknown command: " + json.getAsString("command"));
+        }
     }
 
     @Override
@@ -73,6 +81,11 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
 
         handlers.put("listClasses", (listener, json) -> {
             String appName = json.getAsString("appName");
+            if (appName == null) {
+                sendCommandHelp(listener, "listClasses", "appName");
+                return;
+            }
+
             Optional<ClientWebSocketHandler.ClientWebSocketListener> first = findClient(appName);
 
             JsonObject response = new JsonObject()
@@ -90,9 +103,44 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
             }
         });
 
+        handlers.put("saveClasses", (listener, json) -> {
+            String appName = json.getAsString("appName");
+            String file = json.getAsString("file");
+            if (appName == null || file == null) {
+                sendCommandHelp(listener, "saveClasses", "appName", "file");
+                return;
+            }
+
+            Optional<ClientWebSocketHandler.ClientWebSocketListener> first = findClient(appName);
+
+            JsonObject response = new JsonObject()
+                    .append("command", "listClasses")
+                    .append("appName", appName);
+
+            if (!first.isPresent()) {
+                send(listener, response.append("list", new JsonArray()));
+            } else {
+                Integer id = putCallback(data -> Unchecked.run(() -> {
+                    FileWriter fileWriter = new FileWriter(file);
+                    for (JsonItem item : data.getAsJsonArray("list")) {
+                        fileWriter.write(item.asString());
+                        fileWriter.write("\n");
+                    }
+                    fileWriter.close();
+                }));
+                ClientWebSocketHandler.ClientWebSocketListener client = first.get();
+                clientsHandler.getClasses(client, id);
+            }
+        });
+
         handlers.put("listMethods", (listener, json) -> {
             String appName = json.getAsString("appName");
             String clazz = json.getAsString("class");
+            if (appName == null || clazz == null) {
+                sendCommandHelp(listener, "listMethods", "appName", "class");
+                return;
+            }
+
             Optional<ClientWebSocketHandler.ClientWebSocketListener> first = findClient(appName);
 
             JsonObject response = new JsonObject()
@@ -131,6 +179,12 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
             t.before = json.getAsString("before");
             t.after = json.getAsString("after");
             t.variables = json.getAsJsonArray("variables").toString();
+
+            if (appName == null || t.className == null || t.method == null || t.methodDescriptor == null || t.before == null || t.after == null || t.variables == null) {
+                sendCommandHelp(listener, "addTransformation", "appName", "className", "method", "methodDescriptor", "before", "after", "variables");
+                return;
+            }
+
             dataService.saveTransformation(t);
 
             findAllClients(it -> it.applicationId.equals(applicationId))
@@ -142,7 +196,7 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
 
             Long applicationId = dataService.findApplicationId(appName);
             Transformation t = new Transformation();
-            t.id = json.getAsLong("id");
+            t.id = json.getAsLong("id", -1l);
             t.applicationId = applicationId;
             t.className = json.getAsString("className");
             t.method = json.getAsString("method");
@@ -150,6 +204,12 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
             t.before = json.getAsString("before");
             t.after = json.getAsString("after");
             t.variables = json.getAsJsonArray("variables").toString();
+
+            if (appName == null || t.id == -1 || t.className == null || t.method == null || t.methodDescriptor == null || t.before == null || t.after == null || t.variables == null) {
+                sendCommandHelp(listener, "updateTransformation", "id", "appName", "className", "method", "methodDescriptor", "before", "after", "variables");
+                return;
+            }
+
             if (!dataService.updateTransformation(t))
                 throw new IllegalArgumentException("Transformation " + t.id + " wasn't updated");
 
@@ -159,6 +219,11 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
 
         handlers.put("listTransformations", (listener, json) -> {
             String appName = json.getAsString("appName");
+            if (appName == null) {
+                sendCommandHelp(listener, "listTransformations", "appName");
+                return;
+            }
+
 
             Long applicationId = dataService.findApplicationId(appName);
             List<Transformation> transformations = dataService.findAllTransformationsByApplicationId(applicationId);
@@ -168,6 +233,11 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
 
         handlers.put("deleteTransformation", (listener, json) -> {
             Long id = json.getAsLong("id");
+            if (id == null) {
+                sendCommandHelp(listener, "deleteTransformation", "id");
+                return;
+            }
+
             Transformation t = dataService.getTransformation(id);
             if (!dataService.deleteTransformation(id))
                 throw new IllegalArgumentException("Transformation " + id + " wasn't deleted");
@@ -205,6 +275,16 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
                 e.printStackTrace();
             }
         }
+    }
+
+    public void sendCommandHelp(WebSocketListener listener, String command, String... args) {
+        send(listener, new JsonObject()
+                .append("command", "help")
+                .append("forCommand", command)
+                .append("args", new JsonArray()
+                        .appendAll(Arrays.asList(args))
+                )
+        );
     }
 
     public void send(WebSocketListener listener, JsonObject json) {
