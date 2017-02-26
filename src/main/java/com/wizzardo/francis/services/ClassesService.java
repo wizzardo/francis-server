@@ -13,6 +13,7 @@ import java.util.stream.Stream;
 public class ClassesService implements Service {
     Cache<String, Classes> classesCache = new Cache<>(60 * 60);
 
+
     public void load(String appName, Stream<String> stream) {
         Package defaultPackage = new Package();
 
@@ -46,7 +47,11 @@ public class ClassesService implements Service {
     }
 
     public List<ClassInfo> search(String target, int limit, String appName) {
-        return search(target.toCharArray(), limit, classesCache.get(appName).classes);
+        Classes classes = classesCache.get(appName);
+        if (classes == null)
+            return Collections.emptyList();
+        else
+            return search(target.toCharArray(), limit, classes.classes);
     }
 
     protected List<ClassInfo> search(String target, int limit, ClassInfo[] data) {
@@ -84,6 +89,18 @@ public class ClassesService implements Service {
                 return i;
         }
         return -1;
+    }
+
+    public boolean isReady(String appName) {
+        return classesCache.contains(appName);
+    }
+
+    public int countClasses(String appName) {
+        Classes classes = classesCache.get(appName);
+        if (classes == null)
+            return 0;
+        else
+            return classes.classes.length;
     }
 
     public static class Classes {

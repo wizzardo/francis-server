@@ -1,6 +1,7 @@
 package com.wizzardo.francis.handlers;
 
 import com.wizzardo.francis.domain.Transformation;
+import com.wizzardo.francis.services.ClassesService;
 import com.wizzardo.francis.services.DataService;
 import com.wizzardo.http.framework.di.PostConstruct;
 import com.wizzardo.http.websocket.DefaultWebSocketHandler;
@@ -29,6 +30,7 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
     Cache<Integer, Callback> callbacks = new Cache<>("callbacks", 60);
     AtomicInteger callbackCounter = new AtomicInteger();
     DataService dataService;
+    ClassesService classesService;
 
     @Override
     public String name() {
@@ -101,6 +103,68 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
                 ClientWebSocketHandler.ClientWebSocketListener client = first.get();
                 clientsHandler.getClasses(client, id);
             }
+        });
+
+        handlers.put("loadClasses", (listener, json) -> {
+            String appName = json.getAsString("appName");
+            if (appName == null) {
+                sendCommandHelp(listener, "loadClasses", "appName");
+                return;
+            }
+
+            Optional<ClientWebSocketHandler.ClientWebSocketListener> first = findClient(appName);
+
+            JsonObject response = new JsonObject()
+                    .append("command", "loadClasses")
+                    .append("appName", appName);
+
+            if (!first.isPresent()) {
+                send(listener, response);
+            } else {
+                Integer id = putCallback(data -> {
+                    classesService.load(appName, data.getAsJsonArray("list").stream().map(JsonItem::asString));
+                    send(listener, response.append("count", classesService.countClasses(appName)));
+                });
+                ClientWebSocketHandler.ClientWebSocketListener client = first.get();
+                clientsHandler.getClasses(client, id);
+            }
+        });
+
+        handlers.put("areClassesLoaded", (listener, json) -> {
+            String appName = json.getAsString("appName");
+            if (appName == null) {
+                sendCommandHelp(listener, "areClassesLoaded", "appName");
+                return;
+            }
+
+            JsonObject response = new JsonObject()
+                    .append("command", "areClassesLoaded")
+                    .append("loaded", classesService.isReady(appName))
+                    .append("count", classesService.countClasses(appName))
+                    .append("appName", appName);
+
+            send(listener, response);
+        });
+
+        handlers.put("searchClasses", (listener, json) -> {
+            String appName = json.getAsString("appName");
+            String target = json.getAsString("target");
+            int limit = json.getAsInteger("limit", 25);
+            if (appName == null || target == null) {
+                sendCommandHelp(listener, "searchClasses", "appName", "target", "limit");
+                return;
+            }
+
+            JsonObject response = new JsonObject()
+                    .append("command", "searchClasses")
+                    .append("appName", appName);
+
+            List<ClassesService.ClassInfo> list = classesService.search(target, limit, appName);
+            send(listener, response.append("list", new JsonArray().appendAll(
+                    list.stream()
+                            .map(classInfo -> classInfo.name)
+                            .collect(Collectors.toList())
+            )));
         });
 
         handlers.put("saveClasses", (listener, json) -> {
