@@ -3,6 +3,12 @@
     <title>Francis test page</title>
     <g:resource dir="js" file="material.js"/>
     <g:resource dir="css" file="material.css"/>
+    <style>
+        #search_suggestions li.mdl-menu__item {
+            height: 24px;
+            line-height: 24px;
+        }
+    </style>
 </head>
 <body>
 <b>Francis test page</b>
@@ -10,55 +16,70 @@
 <br>
 
 <div class="mdl-textfield mdl-js-textfield mdl-textfield--floating-label">
-    <input class="mdl-textfield__input" type="text" id="search_class" onkeyup="searchListener(this, event)"
-           onfocus="showSuggestions()" onblur="hideSuggestions()"
+    <input class="mdl-textfield__input" type="text" id="search_class"
+           onkeydown="searchControls(this, event)"
+           onfocus="showSuggestions()"
+           onblur="hideSuggestions()"
     >
     <label class="mdl-textfield__label" for="search_class">Class search</label>
 
     <ul class="mdl-menu mdl-menu--bottom-right mdl-js-menu mdl-js-ripple-effect" id="search_suggestions">
-        <li class="mdl-menu__item" data-n="1">
-            option 1
-        </li>
-        <li class="mdl-menu__item" data-n="2">
-            option 2
-        </li>
-        <li class="mdl-menu__item" data-n="3">
-            option 3
-        </li>
     </ul>
 </div>
 
 <script>
-    var selection = 0;
+    var selection = -1;
     var searchSuggestionsElement = document.getElementById('search_suggestions');
 
-    function searchListener(input, e) {
-        console.log(e)
-        var options = ''
-        var value = input.value;
-        let length = value.length;
+    function searchControls(input, e) {
+//        console.log(e)
+//        console.log(input.value)
+        var newSelection = selection;
+        if (e.code == 'ArrowDown') {
+            if (selection < searchSuggestionsElement.childElementCount - 1)
+                newSelection++;
+        } else if (e.code == 'ArrowUp') {
+            if (selection > 0)
+                newSelection--;
+        } else if (e.code == 'Enter') {
+            //
+        } else if (e.key.length == 1) {
+            searchClasses(input.value + e.key);
+        } else if (e.key == 'Backspace' && input.value.length > 1) {
+            searchClasses(input.value.substr(0, input.value.length - 1));
+        }
+
+        if (newSelection != selection) {
+            if (selection >= 0)
+                searchSuggestionsElement.children[selection].style.backgroundColor = 'transparent';
+            selection = newSelection;
+            searchSuggestionsElement.children[selection].style.backgroundColor = '#eeeeee';
+            e.preventDefault()
+        }
+    }
+
+    function handleSearchResults(list) {
+        var options = '';
+        var value = list;
+        var length = value.length;
         for (var i = 0; i < length; i++) {
             options += `
     <li class="mdl-menu__item" data-n="${'${i}'}">
-        option ${'${value[i]}'}
+        ${'${value[i]}'}
     </li>`
         }
         searchSuggestionsElement.innerHTML = options;
-        searchSuggestionsElement.style.clip = `rect(0px 300px ${'${length * 48 + 16}'}px 0px)`;
-        searchSuggestionsElement.previousElementSibling.style.height = (length * 48 + 16) + 'px';
-        if (searchSuggestionsElement.childElementCount == 0){
-            return;
-        }
-
-        searchSuggestionsElement.children[selection].style.backgroundColor = 'transparent';
-        if (e.code == 'ArrowDown' && selection < searchSuggestionsElement.childElementCount - 1) {
-            selection++;
-        } else if (e.code == 'ArrowUp' && selection > 0) {
-            selection--;
-        } else if (e.code == 'Enter') {
-            //
-        }
-        searchSuggestionsElement.children[selection].style.backgroundColor = '#eeeeee';
+        searchSuggestionsElement.style.clip = `rect(0px 300px ${'${length * 24 + 16}'}px 0px)`;
+        searchSuggestionsElement.previousElementSibling.style.height = (length * 24 + 16) + 'px';
+        setTimeout(() => {
+            if (selection == -1)
+                selection = 0;
+            if (selection >= searchSuggestionsElement.childElementCount) {
+                selection = searchSuggestionsElement.childElementCount - 1;
+            }
+            if (selection >= 0)
+                searchSuggestionsElement.children[selection].style.backgroundColor = '#eeeeee';
+        }, 1);
     }
 
     function showSuggestions() {
@@ -66,7 +87,7 @@
         searchSuggestionsElement.parentNode.classList.add('is-visible');
         searchSuggestionsElement.parentNode.style.left = width;
         searchSuggestionsElement.previousElementSibling.style.width = width;
-        searchSuggestionsElement.previousElementSibling.style.left = '-'+width;
+        searchSuggestionsElement.previousElementSibling.style.left = '-' + width;
         searchSuggestionsElement.style.width = width;
     }
     function hideSuggestions() {
@@ -99,6 +120,17 @@
     handlers.listMethods = (data) => {
         log(data.list);
     };
+    handlers.hello = (data) => {
+        ws.send('{command: loadClasses, appName: "francis-server"}')
+    };
+    handlers.searchClasses = (data) => {
+        log(data);
+        handleSearchResults(data.list);
+    };
+
+    function searchClasses(target) {
+        ws.send(JSON.stringify({command: 'searchClasses', appName: "francis-server", target: target}))
+    }
 
     function log(message) {
         if (debug)
