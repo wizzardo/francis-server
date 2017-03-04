@@ -3,6 +3,7 @@ package com.wizzardo.francis.services;
 import com.wizzardo.francis.domain.Application;
 import com.wizzardo.http.framework.di.PostConstruct;
 import com.wizzardo.http.framework.di.Service;
+import com.wizzardo.tools.cache.Cache;
 import com.wizzardo.tools.collections.flow.Flow;
 import com.wizzardo.tools.collections.flow.FlowProcessor;
 import com.wizzardo.tools.interfaces.Mapper;
@@ -23,6 +24,8 @@ import java.util.List;
  * Created by wizzardo on 24/01/17.
  */
 public class DBService implements Service, PostConstruct {
+
+    Cache<Class, PreparedSelect> preparedSelects = new Cache<>("preparedSelects", 0);
 
     Pool<Connection> connectionPool = new PoolBuilder<Connection>()
             .holder(SimpleHolder::new)
@@ -153,13 +156,11 @@ public class DBService implements Service, PostConstruct {
     }
 
     public <T> T get(Long id, Class<T> clazz) {
-        Fields<FieldInfo> fields = new Fields<>(clazz);
-        StringBuilder sb = new StringBuilder(64);
-
-        Mapper<ResultSet, T> mapper = prepareSelect(clazz, fields, sb);
-        sb.append(" where id = ").append(id);
+        PreparedSelect<T> select = prepareSelect(clazz);
+        StringBuilder sb = new StringBuilder(select.query.length() + 20);
+        sb.append(select.query).append(" where id = ").append(id);
         T result = executeQuery(sb.toString(), flow -> flow
-                .map(mapper)
+                .map(select.mapper)
                 .first()
                 .get()
         );
@@ -167,19 +168,22 @@ public class DBService implements Service, PostConstruct {
     }
 
     public <T> List<T> list(Class<T> clazz) {
-        Fields<FieldInfo> fields = new Fields<>(clazz);
-        StringBuilder sb = new StringBuilder(64);
-
-        Mapper<ResultSet, T> mapper = prepareSelect(clazz, fields, sb);
-        List<T> result = executeQuery(sb.toString(), flow -> flow
-                .map(mapper)
+        PreparedSelect<T> select = prepareSelect(clazz);
+        List<T> result = executeQuery(select.query, flow -> flow
+                .map(select.mapper)
                 .toList()
                 .get()
         );
         return result;
     }
 
-    protected <T> Mapper<ResultSet, T> prepareSelect(Class<T> clazz, Fields<FieldInfo> fields, StringBuilder sb) {
+    protected <T> PreparedSelect<T> prepareSelect(Class<T> clazz) {
+        PreparedSelect<T> preparedSelect = preparedSelects.get(clazz);
+        if (preparedSelect != null)
+            return preparedSelect;
+
+        StringBuilder sb = new StringBuilder(64);
+        Fields<FieldInfo> fields = new Fields<>(clazz);
         sb.append("select ");
         boolean comma = false;
         int counter = 0;
@@ -195,13 +199,15 @@ public class DBService implements Service, PostConstruct {
             counter++;
         }
         sb.append(" from ").append(toSqlString(clazz.getSimpleName()));
-        return rs -> Unchecked.call(() -> {
+        preparedSelect = new PreparedSelect<>(sb.toString(), rs -> Unchecked.call(() -> {
             T t = clazz.newInstance();
             for (Binder<T> binder : binders) {
                 binder.bind(t, rs);
             }
             return t;
-        });
+        }));
+        preparedSelects.put(clazz, preparedSelect);
+        return preparedSelect;
     }
 
     public <T> Binder<T> getBinder(Class<T> clazz, FieldInfo field, int i) {
@@ -263,6 +269,16 @@ public class DBService implements Service, PostConstruct {
             sb.append(lowerCase);
         }
         return sb.toString();
+    }
+
+    public static class PreparedSelect<T> {
+        public final String query;
+        public final Mapper<ResultSet, T> mapper;
+
+        public PreparedSelect(String query, Mapper<ResultSet, T> mapper) {
+            this.query = query;
+            this.mapper = mapper;
+        }
     }
 
     public static void main(String[] args) throws IOException {
