@@ -16,6 +16,9 @@ import com.wizzardo.tools.reflection.FieldReflection;
 import com.wizzardo.tools.reflection.Fields;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.sql.*;
 import java.util.Arrays;
 import java.util.List;
@@ -24,6 +27,7 @@ import java.util.List;
  * Created by wizzardo on 24/01/17.
  */
 public class DBService implements Service, PostConstruct {
+    protected static final char[] SQL_CHARS_TABLE = new char[128];
 
     Cache<Class, PreparedSelect> preparedSelects = new Cache<>("preparedSelects", 0);
 
@@ -33,7 +37,6 @@ public class DBService implements Service, PostConstruct {
             .queue(PoolBuilder.createSharedQueueSupplier())
             .limitSize(16)
             .build();
-    protected static final char[] SQL_CHARS_TABLE = new char[128];
 
     static {
         String s = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
@@ -167,6 +170,16 @@ public class DBService implements Service, PostConstruct {
         return result;
     }
 
+    public <T> Mapper<Object[], T> createGetBy(String field, Class<T> clazz) {
+        PreparedSelect<T> select = prepareSelect(clazz);
+        String sql = select.query + " where " + field + "=?";
+        return args -> executeQuery(sql, args, flow -> flow
+                .map(select.mapper)
+                .first()
+                .get()
+        );
+    }
+
     public <T> List<T> list(Class<T> clazz) {
         PreparedSelect<T> select = prepareSelect(clazz);
         List<T> result = executeQuery(select.query, flow -> flow
@@ -182,6 +195,12 @@ public class DBService implements Service, PostConstruct {
         if (preparedSelect != null)
             return preparedSelect;
 
+        preparedSelects.put(clazz, preparedSelect = createPreparedSelect(clazz));
+        return preparedSelect;
+    }
+
+    protected <T> PreparedSelect<T> createPreparedSelect(Class<T> clazz) {
+        PreparedSelect<T> preparedSelect;
         StringBuilder sb = new StringBuilder(64);
         Fields<FieldInfo> fields = new Fields<>(clazz);
         sb.append("select ");
@@ -206,7 +225,6 @@ public class DBService implements Service, PostConstruct {
             }
             return t;
         }));
-        preparedSelects.put(clazz, preparedSelect);
         return preparedSelect;
     }
 
@@ -281,7 +299,11 @@ public class DBService implements Service, PostConstruct {
         }
     }
 
-    public static void main(String[] args) throws IOException {
+    interface ApplicationRepository {
+        Application findByName(String name);
+    }
+
+    public static void main(String[] main) throws IOException, InterruptedException {
         DBService dbService = new DBService();
         dbService.init();
 
@@ -298,5 +320,50 @@ public class DBService implements Service, PostConstruct {
 //            System.out.println(s);
 //            dbService.execute(s);
 //        }
+
+        ApplicationRepository proxy = dbService.createRepositoryInstance(ApplicationRepository.class);
+        System.out.println(proxy.findByName("idea"));
+    }
+
+    protected <T> T createRepositoryInstance(Class<T> repositoryClass) {
+        Object o = Proxy.newProxyInstance(
+                repositoryClass.getClassLoader(),
+                new Class[]{repositoryClass},
+                new InvocationHandler() {
+                    Cache<Method, Mapper<Object[], Object>> mapperCache = new Cache<>(repositoryClass.getSimpleName() + "Mappers", 0);
+
+                    @Override
+                    public Object invoke(Object instance, Method method, Object[] args) throws Throwable {
+                        return getMapper(method, args).map(args);
+                    }
+
+                    Mapper<Object[], ?> getMapper(Method method, Object[] args) {
+                        Mapper<Object[], Object> mapper = mapperCache.get(method);
+                        if (mapper != null)
+                            return mapper;
+
+                        mapperCache.put(method, mapper = createMapper(method, args));
+                        return mapper;
+                    }
+
+                });
+
+        return (T) o;
+    }
+
+    protected <T> Mapper<Object[], T> createMapper(Method method, Object[] args) {
+        //TODO: http://docs.spring.io/spring-data/jpa/docs/1.4.3.RELEASE/reference/html/repositories.html#repositories.query-methods.query-creation
+        //TODO: http://docs.spring.io/spring-data/jpa/docs/1.4.3.RELEASE/reference/html/jpa.repositories.html#jpa.query-methods.query-creation
+        String name = method.getName();
+        Class<T> returnType = (Class<T>) method.getReturnType();
+        System.out.println(name + "(" + Arrays.toString(method.getParameterTypes()) + ") invoked with " + Arrays.toString(args));
+        if (name.startsWith("findBy")) {
+            String field = name.substring("findBy".length());
+            if (args.length == 1) {
+                return createGetBy(toSqlString(field), returnType);
+            }
+        }
+
+        throw new IllegalArgumentException("Cannot create mapper for " + name + "(" + Arrays.toString(method.getParameterTypes()) + ")");
     }
 }
