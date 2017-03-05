@@ -16,12 +16,14 @@ import com.wizzardo.tools.reflection.FieldReflection;
 import com.wizzardo.tools.reflection.Fields;
 
 import java.io.IOException;
-import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
 import java.sql.*;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Created by wizzardo on 24/01/17.
@@ -301,6 +303,14 @@ public class DBService implements Service, PostConstruct {
 
     interface ApplicationRepository {
         Application findByName(String name);
+
+        static Application findByName2(String name) {
+            return null;
+        }
+
+        default Application findByName3(String name) {
+            return null;
+        }
     }
 
     public static void main(String[] main) throws IOException, InterruptedException {
@@ -326,29 +336,28 @@ public class DBService implements Service, PostConstruct {
     }
 
     protected <T> T createRepositoryInstance(Class<T> repositoryClass) {
+        Map<Method, Mapper<Object[], Object>> methods = prepareMethods(repositoryClass);
         Object o = Proxy.newProxyInstance(
                 repositoryClass.getClassLoader(),
                 new Class[]{repositoryClass},
-                new InvocationHandler() {
-                    Cache<Method, Mapper<Object[], Object>> mapperCache = new Cache<>(repositoryClass.getSimpleName() + "Mappers", 0);
-
-                    @Override
-                    public Object invoke(Object instance, Method method, Object[] args) throws Throwable {
-                        return getMapper(method, args).map(args);
-                    }
-
-                    Mapper<Object[], ?> getMapper(Method method, Object[] args) {
-                        Mapper<Object[], Object> mapper = mapperCache.get(method);
-                        if (mapper != null)
-                            return mapper;
-
-                        mapperCache.put(method, mapper = createMapper(method, args));
-                        return mapper;
-                    }
-
-                });
+                (proxy, method, args) -> methods.get(method).map(args));
 
         return (T) o;
+    }
+
+    protected Map<Method, Mapper<Object[], Object>> prepareMethods(Class clazz) {
+        Method[] declaredMethods = clazz.getDeclaredMethods();
+        Map<Method, Mapper<Object[], Object>> mappers = new HashMap<>(declaredMethods.length + 1, 1);
+        for (Method method : declaredMethods) {
+            if (Modifier.isStatic(method.getModifiers()))
+                continue;
+            if (method.isDefault())
+                continue;
+
+            Mapper<Object[], Object> mapper = createMapper(method, method.getParameterTypes());
+            mappers.put(method, mapper);
+        }
+        return mappers;
     }
 
     protected <T> Mapper<Object[], T> createMapper(Method method, Object[] args) {
