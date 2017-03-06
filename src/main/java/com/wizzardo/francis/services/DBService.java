@@ -14,11 +14,13 @@ import com.wizzardo.tools.misc.pool.SimpleHolder;
 import com.wizzardo.tools.reflection.FieldInfo;
 import com.wizzardo.tools.reflection.FieldReflection;
 import com.wizzardo.tools.reflection.Fields;
+import sun.reflect.generics.reflectiveObjects.ParameterizedTypeImpl;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
+import java.lang.reflect.Type;
 import java.sql.*;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -115,8 +117,10 @@ public class DBService implements Service, PostConstruct {
 //        System.out.println("executeQuery: " + sql + " with args: " + Arrays.toString(args));
         return provide(connection -> {
             PreparedStatement statement = connection.prepareStatement(sql);
-            for (int i = 0; i < args.length; i++) {
-                statement.setObject(i + 1, args[i]);
+            if (args != null) {
+                for (int i = 0; i < args.length; i++) {
+                    statement.setObject(i + 1, args[i]);
+                }
             }
             return mapper.map(FlowSql.of(statement.executeQuery()));
         });
@@ -182,10 +186,44 @@ public class DBService implements Service, PostConstruct {
         );
     }
 
+    public <T> Mapper<Object[], List<T>> createGetAllBy(String field, Class<T> clazz) {
+        PreparedSelect<T> select = prepareSelect(clazz);
+        String sql = select.query + " where " + field + "=?";
+        return args -> list(sql, args, select.mapper);
+    }
+
+    public <T> Mapper<Object[], T> createGet(Class<T> clazz) {
+        PreparedSelect<T> select = prepareSelect(clazz);
+        String sql = select.query + " limit 1";
+        return args -> executeQuery(sql, args, flow -> flow
+                .map(select.mapper)
+                .first()
+                .get()
+        );
+    }
+
+    public <T> Mapper<Object[], List<T>> createGetAll(Class<T> clazz) {
+        PreparedSelect<T> select = prepareSelect(clazz);
+        return args -> list(select.query, args, select.mapper);
+    }
+
     public <T> List<T> list(Class<T> clazz) {
         PreparedSelect<T> select = prepareSelect(clazz);
-        List<T> result = executeQuery(select.query, flow -> flow
-                .map(select.mapper)
+        return list(select.query, select.mapper);
+    }
+
+    protected <T> List<T> list(String query, Object[] args, Mapper<ResultSet, T> mapper) {
+        List<T> result = executeQuery(query, args, flow -> flow
+                .map(mapper)
+                .toList()
+                .get()
+        );
+        return result;
+    }
+
+    protected <T> List<T> list(String query, Mapper<ResultSet, T> mapper) {
+        List<T> result = executeQuery(query, flow -> flow
+                .map(mapper)
                 .toList()
                 .get()
         );
@@ -302,15 +340,13 @@ public class DBService implements Service, PostConstruct {
     }
 
     interface ApplicationRepository {
-        Application findByName(String name);
+        Application getByName(String name);
 
-        static Application findByName2(String name) {
-            return null;
-        }
+        List<Application> findByName(String name);
 
-        default Application findByName3(String name) {
-            return null;
-        }
+        List<Application> getAll();
+
+        Application get();
     }
 
     public static void main(String[] main) throws IOException, InterruptedException {
@@ -332,7 +368,10 @@ public class DBService implements Service, PostConstruct {
 //        }
 
         ApplicationRepository proxy = dbService.createRepositoryInstance(ApplicationRepository.class);
+        System.out.println(proxy.getByName("idea"));
         System.out.println(proxy.findByName("idea"));
+        System.out.println(proxy.getAll());
+        System.out.println(proxy.get());
     }
 
     protected <T> T createRepositoryInstance(Class<T> repositoryClass) {
@@ -366,10 +405,27 @@ public class DBService implements Service, PostConstruct {
         String name = method.getName();
         Class<T> returnType = (Class<T>) method.getReturnType();
         System.out.println(name + "(" + Arrays.toString(method.getParameterTypes()) + ") invoked with " + Arrays.toString(args));
-        if (name.startsWith("findBy")) {
-            String field = name.substring("findBy".length());
+        String[] parts = name.split("By");
+        String verb = parts[0];
+        if (verb.startsWith("find") || verb.startsWith("read") || verb.startsWith("get")) {
             if (args.length == 1) {
-                return createGetBy(toSqlString(field), returnType);
+                String by = parts[1];
+                String field = toSqlString(by);
+                if (List.class.isAssignableFrom(returnType)) {
+                    Type genericReturnType = method.getGenericReturnType();
+                    Class type = (Class) ((ParameterizedTypeImpl) genericReturnType).getActualTypeArguments()[0];
+                    return createGetAllBy(field, type);
+                } else {
+                    return createGetBy(field, returnType);
+                }
+            } else {
+                if (List.class.isAssignableFrom(returnType)) {
+                    Type genericReturnType = method.getGenericReturnType();
+                    Class type = (Class) ((ParameterizedTypeImpl) genericReturnType).getActualTypeArguments()[0];
+                    return createGetAll(type);
+                } else {
+                    return createGet(returnType);
+                }
             }
         }
 
