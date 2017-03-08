@@ -170,7 +170,7 @@ public class DBService implements Service, PostConstruct {
         return args;
     }
 
-    interface Binder<T> {
+    interface SqlGetter<T> {
         void bind(T t, ResultSet rs) throws SQLException;
     }
 
@@ -260,7 +260,7 @@ public class DBService implements Service, PostConstruct {
         sb.append("select ");
         boolean comma = false;
         int counter = 0;
-        Binder<T>[] binders = new Binder[fields.size()];
+        SqlGetter<T>[] getters = new SqlGetter[fields.size()];
         for (FieldInfo field : fields) {
             if (comma)
                 sb.append(',');
@@ -268,14 +268,14 @@ public class DBService implements Service, PostConstruct {
                 comma = true;
 
             sb.append(toSqlString(field.field.getName()));
-            binders[counter] = getBinder(clazz, field, counter + 1);
+            getters[counter] = getGetter(clazz, field, counter + 1);
             counter++;
         }
         sb.append(" from ").append(toSqlString(clazz.getSimpleName()));
         preparedSelect = new PreparedSelect<>(sb.toString(), rs -> Unchecked.call(() -> {
             T t = clazz.newInstance();
-            for (Binder<T> binder : binders) {
-                binder.bind(t, rs);
+            for (SqlGetter<T> getter : getters) {
+                getter.bind(t, rs);
             }
             return t;
         }));
@@ -325,7 +325,7 @@ public class DBService implements Service, PostConstruct {
         return preparedInsert;
     }
 
-    public <T> Binder<T> getBinder(Class<T> clazz, FieldInfo field, int i) {
+    public <T> SqlGetter<T> getGetter(Class<T> clazz, FieldInfo field, int i) {
         FieldReflection reflection = field.reflection;
         switch (reflection.getType()) {
             case BOOLEAN:
