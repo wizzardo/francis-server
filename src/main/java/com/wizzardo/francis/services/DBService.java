@@ -22,10 +22,8 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
 import java.lang.reflect.Type;
 import java.sql.*;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.Date;
 
 /**
  * Created by wizzardo on 24/01/17.
@@ -126,6 +124,18 @@ public class DBService implements Service, PostConstruct {
         });
     }
 
+    public <T> Long executeQuery(String sql, SqlSetter<T> setter, T t) {
+//        System.out.println("executeQuery: " + sql + " with args: " + Arrays.toString(args));
+        return provide(connection -> {
+            PreparedStatement statement = connection.prepareStatement(sql);
+            setter.bind(t, statement);
+            return FlowSql.of(statement.executeQuery())
+                    .map(rs -> Unchecked.call(() -> rs.getLong(1)))
+                    .first()
+                    .get();
+        });
+    }
+
     public int executeUpdate(String sql, Object[] args) {
 //        System.out.println("executeUpdate: " + sql + " with args: " + Arrays.toString(args));
         return provide(connection -> {
@@ -164,6 +174,10 @@ public class DBService implements Service, PostConstruct {
         void bind(T t, ResultSet rs) throws SQLException;
     }
 
+    interface SqlSetter<T> {
+        void bind(T t, PreparedStatement s) throws SQLException;
+    }
+
     public <T> T get(Long id, Class<T> clazz) {
         PreparedSelect<T> select = prepareSelect(clazz);
         StringBuilder sb = new StringBuilder(select.query.length() + 20);
@@ -176,7 +190,7 @@ public class DBService implements Service, PostConstruct {
         return result;
     }
 
-    public <T> Mapper<Object[], T> createGetBy(String field, Class<T> clazz) {
+    public <T> Mapper<Object[], T> createGetBy(Class<T> clazz, String field) {
         PreparedSelect<T> select = prepareSelect(clazz);
         String sql = select.query + " where " + field + "=?";
         return args -> executeQuery(sql, args, flow -> flow
@@ -186,7 +200,7 @@ public class DBService implements Service, PostConstruct {
         );
     }
 
-    public <T> Mapper<Object[], List<T>> createGetAllBy(String field, Class<T> clazz) {
+    public <T> Mapper<Object[], List<T>> createGetAllBy(Class<T> clazz, String field) {
         PreparedSelect<T> select = prepareSelect(clazz);
         String sql = select.query + " where " + field + "=?";
         return args -> list(sql, args, select.mapper);
@@ -268,6 +282,49 @@ public class DBService implements Service, PostConstruct {
         return preparedSelect;
     }
 
+    protected <T> PreparedInsert<T> createPreparedInsert(Class<T> clazz) {
+        PreparedInsert<T> preparedInsert;
+        StringBuilder sb = new StringBuilder(64);
+        Fields<FieldInfo> fields = new Fields<>(clazz);
+        sb.append("insert into ").append(toSqlString(clazz.getSimpleName())).append('(');
+
+        StringBuilder fieldsBuilder = new StringBuilder();
+
+        boolean comma = false;
+        int counter = 1;
+        List<SqlSetter<T>> l = new ArrayList<>();
+        for (FieldInfo field : fields) {
+            String fieldName = toSqlString(field.field.getName());
+            if (fieldName.equals("id"))
+                continue;
+
+            if (comma) {
+                sb.append(',');
+                fieldsBuilder.append(',');
+            } else
+                comma = true;
+
+            sb.append(fieldName);
+            if (field.generic.clazz.equals(Date.class) && (fieldName.contains("create") || fieldName.contains("update"))) {
+                fieldsBuilder.append("now()");
+            } else {
+                fieldsBuilder.append("?");
+                l.add(getSetter(clazz, field, counter++));
+            }
+        }
+
+        sb.append(") values (").append(fieldsBuilder).append(")  RETURNING ID");
+        SqlSetter<T>[] setters = l.toArray(new SqlSetter[l.size()]);
+
+        preparedInsert = new PreparedInsert<>(sb.toString(),
+                (t, s) -> {
+                    for (SqlSetter<T> setter : setters) {
+                        setter.bind(t, s);
+                    }
+                });
+        return preparedInsert;
+    }
+
     public <T> Binder<T> getBinder(Class<T> clazz, FieldInfo field, int i) {
         FieldReflection reflection = field.reflection;
         switch (reflection.getType()) {
@@ -315,6 +372,55 @@ public class DBService implements Service, PostConstruct {
         }
     }
 
+    public <T> SqlSetter<T> getSetter(Class<T> clazz, FieldInfo field, int i) {
+        FieldReflection reflection = field.reflection;
+        switch (reflection.getType()) {
+            case BOOLEAN:
+                return (t, s) -> s.setBoolean(i, reflection.getBoolean(t));
+            case BYTE:
+                return (t, s) -> s.setByte(i, reflection.getByte(t));
+            case SHORT:
+                return (t, s) -> s.setShort(i, reflection.getShort(t));
+            case INTEGER:
+                return (t, s) -> s.setInt(i, reflection.getInteger(t));
+            case LONG:
+                return (t, s) -> s.setLong(i, reflection.getLong(t));
+            case FLOAT:
+                return (t, s) -> s.setFloat(i, reflection.getFloat(t));
+            case DOUBLE:
+                return (t, s) -> s.setDouble(i, reflection.getDouble(t));
+            case CHAR:
+                return (t, s) -> s.setString(i, String.valueOf(reflection.getChar(t)));
+            case OBJECT:
+                if (field.generic.clazz.equals(String.class)) {
+                    return (t, s) -> s.setString(i, (String) reflection.getObject(t));
+                } else if (field.generic.clazz.equals(Date.class)) {
+                    return (t, s) -> s.setDate(i, new java.sql.Date(((Date) reflection.getObject(t)).getTime()));
+                } else if (field.generic.clazz.equals(java.sql.Date.class)) {
+                    return (t, s) -> s.setDate(i, (java.sql.Date) reflection.getObject(t));
+                } else if (field.generic.clazz.equals(Boolean.class)) {
+                    return (t, s) -> s.setBoolean(i, (Boolean) reflection.getObject(t));
+                } else if (field.generic.clazz.equals(Byte.class)) {
+                    return (t, s) -> s.setByte(i, (Byte) reflection.getObject(t));
+                } else if (field.generic.clazz.equals(Short.class)) {
+                    return (t, s) -> s.setShort(i, (Short) reflection.getObject(t));
+                } else if (field.generic.clazz.equals(Integer.class)) {
+                    return (t, s) -> s.setInt(i, (Integer) reflection.getObject(t));
+                } else if (field.generic.clazz.equals(Long.class)) {
+                    return (t, s) -> s.setLong(i, (Long) reflection.getObject(t));
+                } else if (field.generic.clazz.equals(Float.class)) {
+                    return (t, s) -> s.setFloat(i, (Float) reflection.getObject(t));
+                } else if (field.generic.clazz.equals(Double.class)) {
+                    return (t, s) -> s.setDouble(i, (Double) reflection.getObject(t));
+                } else if (field.generic.clazz.equals(Character.class)) {
+                    return (t, s) -> s.setString(i, String.valueOf((Character) reflection.getObject(t)));
+                }
+
+            default:
+                throw new IllegalArgumentException("Cannot map field of class '" + clazz + "' with type '" + field.generic.clazz + "'");
+        }
+    }
+
     protected String toSqlString(String name) {
         int length = name.length();
         StringBuilder sb = new StringBuilder(length);
@@ -336,6 +442,16 @@ public class DBService implements Service, PostConstruct {
         public PreparedSelect(String query, Mapper<ResultSet, T> mapper) {
             this.query = query;
             this.mapper = mapper;
+        }
+    }
+
+    public static class PreparedInsert<T> {
+        public final String query;
+        public final SqlSetter<T> setter;
+
+        public PreparedInsert(String query, SqlSetter<T> setter) {
+            this.query = query;
+            this.setter = setter;
         }
     }
 
@@ -366,6 +482,11 @@ public class DBService implements Service, PostConstruct {
 //            System.out.println(s);
 //            dbService.execute(s);
 //        }
+
+        PreparedInsert<Application> preparedInsert = dbService.createPreparedInsert(Application.class);
+        t = new Application();
+        t.name = "test";
+        System.out.println(dbService.executeQuery(preparedInsert.query, preparedInsert.setter, t));
 
         ApplicationRepository proxy = dbService.createRepositoryInstance(ApplicationRepository.class);
         System.out.println(proxy.getByName("idea"));
@@ -414,9 +535,9 @@ public class DBService implements Service, PostConstruct {
                 if (List.class.isAssignableFrom(returnType)) {
                     Type genericReturnType = method.getGenericReturnType();
                     Class type = (Class) ((ParameterizedTypeImpl) genericReturnType).getActualTypeArguments()[0];
-                    return createGetAllBy(field, type);
+                    return createGetAllBy(type, field);
                 } else {
-                    return createGetBy(field, returnType);
+                    return createGetBy(returnType, field);
                 }
             } else {
                 if (List.class.isAssignableFrom(returnType)) {
