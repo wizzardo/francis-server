@@ -305,7 +305,7 @@ public class DBService implements Service, PostConstruct {
                 comma = true;
 
             sb.append(fieldName);
-            if (field.generic.clazz.equals(Date.class) && (fieldName.contains("create") || fieldName.contains("update"))) {
+            if (Date.class.isAssignableFrom(field.generic.clazz) && (fieldName.contains("create") || fieldName.contains("update"))) {
                 fieldsBuilder.append("now()");
             } else {
                 fieldsBuilder.append("?");
@@ -314,6 +314,54 @@ public class DBService implements Service, PostConstruct {
         }
 
         sb.append(") values (").append(fieldsBuilder).append(")  RETURNING ID");
+        SqlSetter<T>[] setters = l.toArray(new SqlSetter[l.size()]);
+
+        preparedInsert = new PreparedInsert<>(sb.toString(),
+                (t, s) -> {
+                    for (SqlSetter<T> setter : setters) {
+                        setter.bind(t, s);
+                    }
+                });
+        return preparedInsert;
+    }
+
+    protected <T> PreparedInsert<T> createPreparedUpdate(Class<T> clazz) {
+        PreparedInsert<T> preparedInsert;
+        StringBuilder sb = new StringBuilder(64);
+        Fields<FieldInfo> fields = new Fields<>(clazz);
+        sb.append("update ").append(toSqlString(clazz.getSimpleName())).append(" set ");
+
+        boolean comma = false;
+        int counter = 1;
+        List<SqlSetter<T>> l = new ArrayList<>();
+        for (FieldInfo field : fields) {
+            String fieldName = toSqlString(field.field.getName());
+            if (fieldName.equals("id"))
+                continue;
+
+            if (comma) {
+                sb.append(',');
+            } else
+                comma = true;
+
+            sb.append(fieldName).append('=');
+            if (Date.class.isAssignableFrom(field.generic.clazz) && (fieldName.contains("update"))) {
+                sb.append("now()");
+            } else if (fieldName.equals("version") && (
+                    field.generic.clazz == int.class ||
+                            field.generic.clazz == long.class ||
+                            field.generic.clazz == Integer.class ||
+                            field.generic.clazz == Long.class
+            )) {
+                sb.append("version+1");
+            } else {
+                sb.append("?");
+                l.add(getSetter(clazz, field, counter++));
+            }
+        }
+        sb.append(" where id=?");
+        l.add(getSetter(clazz, fields.get("id"), counter++));
+
         SqlSetter<T>[] setters = l.toArray(new SqlSetter[l.size()]);
 
         preparedInsert = new PreparedInsert<>(sb.toString(),
