@@ -373,6 +373,19 @@ public class DBService implements Service, PostConstruct {
         return preparedInsert;
     }
 
+    protected <T> PreparedInsert<T> createPreparedDelete(Class<T> clazz) {
+        PreparedInsert<T> preparedInsert;
+        StringBuilder sb = new StringBuilder(64);
+        Fields<FieldInfo> fields = new Fields<>(clazz);
+        sb.append("delete from ")
+                .append(toSqlString(clazz.getSimpleName()))
+                .append(" where id=?");
+
+        SqlSetter<T> setter = getSetter(clazz, fields.get("id"), 1);
+        preparedInsert = new PreparedInsert<>(sb.toString(), setter::bind);
+        return preparedInsert;
+    }
+
     public <T> SqlGetter<T> getGetter(Class<T> clazz, FieldInfo field, int i) {
         FieldReflection reflection = field.reflection;
         switch (reflection.getType()) {
