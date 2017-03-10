@@ -31,7 +31,7 @@ import java.util.Date;
 public class DBService implements Service, PostConstruct {
     protected static final char[] SQL_CHARS_TABLE = new char[128];
 
-    Cache<Class, PreparedSelect> preparedSelects = new Cache<>("preparedSelects", 0);
+    Cache<Class, PreparedReadQuery> preparedSelects = new Cache<>("preparedSelects", 0);
 
     Pool<Connection> connectionPool = new PoolBuilder<Connection>()
             .holder(SimpleHolder::new)
@@ -179,7 +179,7 @@ public class DBService implements Service, PostConstruct {
     }
 
     public <T> T get(Long id, Class<T> clazz) {
-        PreparedSelect<T> select = prepareSelect(clazz);
+        PreparedReadQuery<T> select = prepareSelect(clazz);
         StringBuilder sb = new StringBuilder(select.query.length() + 20);
         sb.append(select.query).append(" where id = ").append(id);
         T result = executeQuery(sb.toString(), flow -> flow
@@ -191,7 +191,7 @@ public class DBService implements Service, PostConstruct {
     }
 
     public <T> Mapper<Object[], T> createGetBy(Class<T> clazz, String field) {
-        PreparedSelect<T> select = prepareSelect(clazz);
+        PreparedReadQuery<T> select = prepareSelect(clazz);
         String sql = select.query + " where " + field + "=?";
         return args -> executeQuery(sql, args, flow -> flow
                 .map(select.mapper)
@@ -201,13 +201,13 @@ public class DBService implements Service, PostConstruct {
     }
 
     public <T> Mapper<Object[], List<T>> createGetAllBy(Class<T> clazz, String field) {
-        PreparedSelect<T> select = prepareSelect(clazz);
+        PreparedReadQuery<T> select = prepareSelect(clazz);
         String sql = select.query + " where " + field + "=?";
         return args -> list(sql, args, select.mapper);
     }
 
     public <T> Mapper<Object[], T> createGet(Class<T> clazz) {
-        PreparedSelect<T> select = prepareSelect(clazz);
+        PreparedReadQuery<T> select = prepareSelect(clazz);
         String sql = select.query + " limit 1";
         return args -> executeQuery(sql, args, flow -> flow
                 .map(select.mapper)
@@ -217,12 +217,12 @@ public class DBService implements Service, PostConstruct {
     }
 
     public <T> Mapper<Object[], List<T>> createGetAll(Class<T> clazz) {
-        PreparedSelect<T> select = prepareSelect(clazz);
+        PreparedReadQuery<T> select = prepareSelect(clazz);
         return args -> list(select.query, args, select.mapper);
     }
 
     public <T> List<T> list(Class<T> clazz) {
-        PreparedSelect<T> select = prepareSelect(clazz);
+        PreparedReadQuery<T> select = prepareSelect(clazz);
         return list(select.query, select.mapper);
     }
 
@@ -244,17 +244,17 @@ public class DBService implements Service, PostConstruct {
         return result;
     }
 
-    protected <T> PreparedSelect<T> prepareSelect(Class<T> clazz) {
-        PreparedSelect<T> preparedSelect = preparedSelects.get(clazz);
-        if (preparedSelect != null)
-            return preparedSelect;
+    protected <T> PreparedReadQuery<T> prepareSelect(Class<T> clazz) {
+        PreparedReadQuery<T> preparedReadQuery = preparedSelects.get(clazz);
+        if (preparedReadQuery != null)
+            return preparedReadQuery;
 
-        preparedSelects.put(clazz, preparedSelect = createPreparedSelect(clazz));
-        return preparedSelect;
+        preparedSelects.put(clazz, preparedReadQuery = createPreparedSelect(clazz));
+        return preparedReadQuery;
     }
 
-    protected <T> PreparedSelect<T> createPreparedSelect(Class<T> clazz) {
-        PreparedSelect<T> preparedSelect;
+    protected <T> PreparedReadQuery<T> createPreparedSelect(Class<T> clazz) {
+        PreparedReadQuery<T> preparedReadQuery;
         StringBuilder sb = new StringBuilder(64);
         Fields<FieldInfo> fields = new Fields<>(clazz);
         sb.append("select ");
@@ -272,18 +272,18 @@ public class DBService implements Service, PostConstruct {
             counter++;
         }
         sb.append(" from ").append(toSqlString(clazz.getSimpleName()));
-        preparedSelect = new PreparedSelect<>(sb.toString(), rs -> Unchecked.call(() -> {
+        preparedReadQuery = new PreparedReadQuery<>(sb.toString(), rs -> Unchecked.call(() -> {
             T t = clazz.newInstance();
             for (SqlGetter<T> getter : getters) {
                 getter.bind(t, rs);
             }
             return t;
         }));
-        return preparedSelect;
+        return preparedReadQuery;
     }
 
-    protected <T> PreparedInsert<T> createPreparedInsert(Class<T> clazz) {
-        PreparedInsert<T> preparedInsert;
+    protected <T> PreparedWriteQuery<T> createPreparedInsert(Class<T> clazz) {
+        PreparedWriteQuery<T> preparedWriteQuery;
         StringBuilder sb = new StringBuilder(64);
         Fields<FieldInfo> fields = new Fields<>(clazz);
         sb.append("insert into ").append(toSqlString(clazz.getSimpleName())).append('(');
@@ -316,17 +316,17 @@ public class DBService implements Service, PostConstruct {
         sb.append(") values (").append(fieldsBuilder).append(")  RETURNING ID");
         SqlSetter<T>[] setters = l.toArray(new SqlSetter[l.size()]);
 
-        preparedInsert = new PreparedInsert<>(sb.toString(),
+        preparedWriteQuery = new PreparedWriteQuery<>(sb.toString(),
                 (t, s) -> {
                     for (SqlSetter<T> setter : setters) {
                         setter.bind(t, s);
                     }
                 });
-        return preparedInsert;
+        return preparedWriteQuery;
     }
 
-    protected <T> PreparedInsert<T> createPreparedUpdate(Class<T> clazz) {
-        PreparedInsert<T> preparedInsert;
+    protected <T> PreparedWriteQuery<T> createPreparedUpdate(Class<T> clazz) {
+        PreparedWriteQuery<T> preparedWriteQuery;
         StringBuilder sb = new StringBuilder(64);
         Fields<FieldInfo> fields = new Fields<>(clazz);
         sb.append("update ").append(toSqlString(clazz.getSimpleName())).append(" set ");
@@ -364,17 +364,17 @@ public class DBService implements Service, PostConstruct {
 
         SqlSetter<T>[] setters = l.toArray(new SqlSetter[l.size()]);
 
-        preparedInsert = new PreparedInsert<>(sb.toString(),
+        preparedWriteQuery = new PreparedWriteQuery<>(sb.toString(),
                 (t, s) -> {
                     for (SqlSetter<T> setter : setters) {
                         setter.bind(t, s);
                     }
                 });
-        return preparedInsert;
+        return preparedWriteQuery;
     }
 
-    protected <T> PreparedInsert<T> createPreparedDelete(Class<T> clazz) {
-        PreparedInsert<T> preparedInsert;
+    protected <T> PreparedWriteQuery<T> createPreparedDelete(Class<T> clazz) {
+        PreparedWriteQuery<T> preparedWriteQuery;
         StringBuilder sb = new StringBuilder(64);
         Fields<FieldInfo> fields = new Fields<>(clazz);
         sb.append("delete from ")
@@ -382,8 +382,8 @@ public class DBService implements Service, PostConstruct {
                 .append(" where id=?");
 
         SqlSetter<T> setter = getSetter(clazz, fields.get("id"), 1);
-        preparedInsert = new PreparedInsert<>(sb.toString(), setter::bind);
-        return preparedInsert;
+        preparedWriteQuery = new PreparedWriteQuery<>(sb.toString(), setter);
+        return preparedWriteQuery;
     }
 
     public <T> SqlGetter<T> getGetter(Class<T> clazz, FieldInfo field, int i) {
@@ -496,21 +496,21 @@ public class DBService implements Service, PostConstruct {
         return sb.toString();
     }
 
-    public static class PreparedSelect<T> {
+    public static class PreparedReadQuery<T> {
         public final String query;
         public final Mapper<ResultSet, T> mapper;
 
-        public PreparedSelect(String query, Mapper<ResultSet, T> mapper) {
+        public PreparedReadQuery(String query, Mapper<ResultSet, T> mapper) {
             this.query = query;
             this.mapper = mapper;
         }
     }
 
-    public static class PreparedInsert<T> {
+    public static class PreparedWriteQuery<T> {
         public final String query;
         public final SqlSetter<T> setter;
 
-        public PreparedInsert(String query, SqlSetter<T> setter) {
+        public PreparedWriteQuery(String query, SqlSetter<T> setter) {
             this.query = query;
             this.setter = setter;
         }
@@ -544,10 +544,10 @@ public class DBService implements Service, PostConstruct {
 //            dbService.execute(s);
 //        }
 
-        PreparedInsert<Application> preparedInsert = dbService.createPreparedInsert(Application.class);
+        PreparedWriteQuery<Application> preparedWriteQuery = dbService.createPreparedInsert(Application.class);
         t = new Application();
         t.name = "test";
-        System.out.println(dbService.executeQuery(preparedInsert.query, preparedInsert.setter, t));
+        System.out.println(dbService.executeQuery(preparedWriteQuery.query, preparedWriteQuery.setter, t));
 
         ApplicationRepository proxy = dbService.createRepositoryInstance(ApplicationRepository.class);
         System.out.println(proxy.getByName("idea"));
