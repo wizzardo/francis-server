@@ -14,13 +14,11 @@ import com.wizzardo.tools.misc.pool.SimpleHolder;
 import com.wizzardo.tools.reflection.FieldInfo;
 import com.wizzardo.tools.reflection.FieldReflection;
 import com.wizzardo.tools.reflection.Fields;
+import com.wizzardo.tools.reflection.Generic;
 import sun.reflect.generics.reflectiveObjects.ParameterizedTypeImpl;
 
 import java.io.IOException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.lang.reflect.Proxy;
-import java.lang.reflect.Type;
+import java.lang.reflect.*;
 import java.sql.*;
 import java.util.*;
 import java.util.Date;
@@ -516,7 +514,21 @@ public class DBService implements Service, PostConstruct {
         }
     }
 
-    interface ApplicationRepository {
+    interface CrudRepository<T, I> {
+        <S extends T> S save(S entity);
+
+        T findOne(I primaryKey);
+
+        Iterable<T> findAll();
+
+        Long count();
+
+        void delete(T entity);
+
+        boolean exists(I primaryKey);
+    }
+
+    interface ApplicationRepository extends CrudRepository<Application, Long> {
         Application getByName(String name);
 
         List<Application> findByName(String name);
@@ -544,16 +556,18 @@ public class DBService implements Service, PostConstruct {
 //            dbService.execute(s);
 //        }
 
-        PreparedWriteQuery<Application> preparedWriteQuery = dbService.createPreparedInsert(Application.class);
-        t = new Application();
-        t.name = "test";
-        System.out.println(dbService.executeQuery(preparedWriteQuery.query, preparedWriteQuery.setter, t));
+//        PreparedWriteQuery<Application> preparedWriteQuery = dbService.createPreparedInsert(Application.class);
+//        t = new Application();
+//        t.name = "test";
+//        System.out.println(dbService.executeQuery(preparedWriteQuery.query, preparedWriteQuery.setter, t));
+
 
         ApplicationRepository proxy = dbService.createRepositoryInstance(ApplicationRepository.class);
         System.out.println(proxy.getByName("idea"));
         System.out.println(proxy.findByName("idea"));
         System.out.println(proxy.getAll());
         System.out.println(proxy.get());
+        System.out.println(proxy.count());
     }
 
     protected <T> T createRepositoryInstance(Class<T> repositoryClass) {
@@ -567,31 +581,50 @@ public class DBService implements Service, PostConstruct {
     }
 
     protected Map<Method, Mapper<Object[], Object>> prepareMethods(Class clazz) {
-        Method[] declaredMethods = clazz.getDeclaredMethods();
-        Map<Method, Mapper<Object[], Object>> mappers = new HashMap<>(declaredMethods.length + 1, 1);
-        for (Method method : declaredMethods) {
+        Generic generic = new Generic(clazz);
+        Method[] methods = clazz.getMethods();
+        Map<Method, Mapper<Object[], Object>> mappers = new HashMap<>(methods.length + 1, 1);
+        for (Method method : methods) {
             if (Modifier.isStatic(method.getModifiers()))
                 continue;
             if (method.isDefault())
                 continue;
 
-            Mapper<Object[], Object> mapper = createMapper(method, method.getParameterTypes());
+            Class returnType = getReturnType(method, generic);
+            Mapper<Object[], Object> mapper = createMapper(method, method.getParameterTypes(), returnType);
             mappers.put(method, mapper);
         }
         return mappers;
     }
 
-    protected <T> Mapper<Object[], T> createMapper(Method method, Object[] args) {
+    protected Class<?> getReturnType(Method method, Generic generic) {
+        Type type = method.getGenericReturnType();
+        if (type instanceof Class)
+            return (Class<?>) type;
+        if (type instanceof TypeVariable) {
+            TypeVariable tv = (TypeVariable) type;
+            Generic g = generic.type(tv.getName());
+            if (g != null)
+                return g.clazz;
+        }
+
+        return method.getReturnType();
+    }
+
+    protected <T> Mapper<Object[], T> createMapper(Method method, Object[] args, Class<T> returnType) {
         //TODO: http://docs.spring.io/spring-data/jpa/docs/1.4.3.RELEASE/reference/html/repositories.html#repositories.query-methods.query-creation
         //TODO: http://docs.spring.io/spring-data/jpa/docs/1.4.3.RELEASE/reference/html/jpa.repositories.html#jpa.query-methods.query-creation
         String name = method.getName();
-        Class<T> returnType = (Class<T>) method.getReturnType();
         System.out.println(name + "(" + Arrays.toString(method.getParameterTypes()) + ") invoked with " + Arrays.toString(args));
-        String[] parts = name.split("By");
+        String[] parts = name.split("By", 2);
         String verb = parts[0];
         if (verb.startsWith("find") || verb.startsWith("read") || verb.startsWith("get")) {
             if (args.length == 1) {
-                String by = parts[1];
+                String by;
+                if (parts.length == 2)
+                    by = parts[1];
+                else
+                    by = "id";
                 String field = toSqlString(by);
                 if (List.class.isAssignableFrom(returnType)) {
                     Type genericReturnType = method.getGenericReturnType();
@@ -609,6 +642,36 @@ public class DBService implements Service, PostConstruct {
                     return createGet(returnType);
                 }
             }
+        }
+
+        if ("count".equals(name)) {
+            return objects -> executeQuery("select count(id) from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
+                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
+                    .first()
+                    .get()
+            );
+        }
+
+        if ("delete".equals(name)) {
+            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
+                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
+                    .first()
+                    .get()
+            );
+        }
+        if ("save".equals(name)) {
+            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
+                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
+                    .first()
+                    .get()
+            );
+        }
+        if ("exists".equals(name)) {
+            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
+                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
+                    .first()
+                    .get()
+            );
         }
 
         throw new IllegalArgumentException("Cannot create mapper for " + name + "(" + Arrays.toString(method.getParameterTypes()) + ")");

@@ -27,7 +27,7 @@ dependencies {
     compile 'com.wizzardo:epoll:0.2+'
     compile 'com.wizzardo:http:0.2+'
     compile 'com.wizzardo:datadog-jvm:0.4+'
-    compile 'com.wizzardo.tools:tools:0.17+'
+    compile 'com.wizzardo.tools:tools:0.19+'
 
 //    compile 'mysql:mysql-connector-java:5.1.41'
     compile 'org.postgresql:postgresql:9.4.1212'
