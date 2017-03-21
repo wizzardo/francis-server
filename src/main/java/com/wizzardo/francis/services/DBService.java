@@ -11,14 +11,12 @@ import com.wizzardo.tools.misc.Unchecked;
 import com.wizzardo.tools.misc.pool.Pool;
 import com.wizzardo.tools.misc.pool.PoolBuilder;
 import com.wizzardo.tools.misc.pool.SimpleHolder;
-import com.wizzardo.tools.reflection.FieldInfo;
-import com.wizzardo.tools.reflection.FieldReflection;
-import com.wizzardo.tools.reflection.Fields;
-import com.wizzardo.tools.reflection.Generic;
-import sun.reflect.generics.reflectiveObjects.ParameterizedTypeImpl;
+import com.wizzardo.tools.reflection.*;
 
 import java.io.IOException;
-import java.lang.reflect.*;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.Proxy;
 import java.sql.*;
 import java.util.*;
 import java.util.Date;
@@ -582,44 +580,38 @@ public class DBService implements Service, PostConstruct {
 
     protected Map<Method, Mapper<Object[], Object>> prepareMethods(Class clazz) {
         Generic generic = new Generic(clazz);
-        Method[] methods = clazz.getMethods();
-        Map<Method, Mapper<Object[], Object>> mappers = new HashMap<>(methods.length + 1, 1);
-        for (Method method : methods) {
-            if (Modifier.isStatic(method.getModifiers()))
+        List<GenericMethod> genericMethods = generic.methods();
+        Map<Method, Mapper<Object[], Object>> mappers = new HashMap<>(genericMethods.size() + 1, 1);
+        for (GenericMethod gm : genericMethods) {
+            if (Modifier.isStatic(gm.method.getModifiers()))
                 continue;
-            if (method.isDefault())
+            if (gm.method.isDefault())
                 continue;
 
-            Class returnType = getReturnType(method, generic);
-            Mapper<Object[], Object> mapper = createMapper(method, method.getParameterTypes(), returnType);
-            mappers.put(method, mapper);
+            Mapper<Object[], Object> mapper = createMapper(gm);
+            mappers.put(gm.method, mapper);
         }
         return mappers;
     }
 
-    protected Class<?> getReturnType(Method method, Generic generic) {
-        Type type = method.getGenericReturnType();
-        if (type instanceof Class)
-            return (Class<?>) type;
-        if (type instanceof TypeVariable) {
-            TypeVariable tv = (TypeVariable) type;
-            Generic g = generic.type(tv.getName());
-            if (g != null)
-                return g.clazz;
-        }
-
-        return method.getReturnType();
-    }
-
-    protected <T> Mapper<Object[], T> createMapper(Method method, Object[] args, Class<T> returnType) {
+    protected <T> Mapper<Object[], T> createMapper(GenericMethod genericMethod) {
         //TODO: http://docs.spring.io/spring-data/jpa/docs/1.4.3.RELEASE/reference/html/repositories.html#repositories.query-methods.query-creation
         //TODO: http://docs.spring.io/spring-data/jpa/docs/1.4.3.RELEASE/reference/html/jpa.repositories.html#jpa.query-methods.query-creation
-        String name = method.getName();
-        System.out.println(name + "(" + Arrays.toString(method.getParameterTypes()) + ") invoked with " + Arrays.toString(args));
+        String name = genericMethod.method.getName();
+        Class returnType = genericMethod.returnType.clazz;
+        List<Generic> args = genericMethod.args;
+
+        System.out.println(name + "(" + args + ") invoked with " + args);
         String[] parts = name.split("By", 2);
         String verb = parts[0];
         if (verb.startsWith("find") || verb.startsWith("read") || verb.startsWith("get")) {
-            if (args.length == 1) {
+            if (args.size() != 1) {
+                if (List.class.isAssignableFrom(returnType)) {
+                    return createGetAll(genericMethod.returnType.type(0).clazz);
+                } else {
+                    return createGet(returnType);
+                }
+            } else {
                 String by;
                 if (parts.length == 2)
                     by = parts[1];
@@ -627,53 +619,43 @@ public class DBService implements Service, PostConstruct {
                     by = "id";
                 String field = toSqlString(by);
                 if (List.class.isAssignableFrom(returnType)) {
-                    Type genericReturnType = method.getGenericReturnType();
-                    Class type = (Class) ((ParameterizedTypeImpl) genericReturnType).getActualTypeArguments()[0];
-                    return createGetAllBy(type, field);
+                    return createGetAllBy(genericMethod.returnType.type(0).clazz, field);
                 } else {
                     return createGetBy(returnType, field);
-                }
-            } else {
-                if (List.class.isAssignableFrom(returnType)) {
-                    Type genericReturnType = method.getGenericReturnType();
-                    Class type = (Class) ((ParameterizedTypeImpl) genericReturnType).getActualTypeArguments()[0];
-                    return createGetAll(type);
-                } else {
-                    return createGet(returnType);
                 }
             }
         }
 
-        if ("count".equals(name)) {
-            return objects -> executeQuery("select count(id) from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
-                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
-                    .first()
-                    .get()
-            );
-        }
+//        if ("count".equals(name)) {
+//            return objects -> executeQuery("select count(id) from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
+//                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
+//                    .first()
+//                    .get()
+//            );
+//        }
+//
+//        if ("delete".equals(name)) {
+//            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
+//                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
+//                    .first()
+//                    .get()
+//            );
+//        }
+//        if ("save".equals(name)) {
+//            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
+//                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
+//                    .first()
+//                    .get()
+//            );
+//        }
+//        if ("exists".equals(name)) {
+//            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
+//                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
+//                    .first()
+//                    .get()
+//            );
+//        }
 
-        if ("delete".equals(name)) {
-            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
-                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
-                    .first()
-                    .get()
-            );
-        }
-        if ("save".equals(name)) {
-            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
-                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
-                    .first()
-                    .get()
-            );
-        }
-        if ("exists".equals(name)) {
-            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
-                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
-                    .first()
-                    .get()
-            );
-        }
-
-        throw new IllegalArgumentException("Cannot create mapper for " + name + "(" + Arrays.toString(method.getParameterTypes()) + ")");
+        throw new IllegalArgumentException("Cannot create mapper for " + genericMethod);
     }
 }
