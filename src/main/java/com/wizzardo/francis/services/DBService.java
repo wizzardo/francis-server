@@ -382,6 +382,51 @@ public class DBService implements Service, PostConstruct {
         return preparedWriteQuery;
     }
 
+    public <T> Mapper<? super ResultSet, T> getMapper(Generic returnType) {
+        return getMapper(returnType, true);
+    }
+
+    public <T> Mapper<? super ResultSet, T> getMapper(Generic returnType, boolean withCollections) {
+        Class clazz = returnType.clazz;
+        if (clazz == int.class || clazz == Integer.class)
+            return rs -> Unchecked.call(() -> (T) (Integer) rs.getInt(1));
+        if (clazz == long.class || clazz == Long.class)
+            return rs -> Unchecked.call(() -> (T) (Long) rs.getLong(1));
+        if (clazz == short.class || clazz == Short.class)
+            return rs -> Unchecked.call(() -> (T) (Short) rs.getShort(1));
+        if (clazz == byte.class || clazz == Byte.class)
+            return rs -> Unchecked.call(() -> (T) (Byte) rs.getByte(1));
+        if (clazz == float.class || clazz == Float.class)
+            return rs -> Unchecked.call(() -> (T) (Float) rs.getFloat(1));
+        if (clazz == double.class || clazz == Double.class)
+            return rs -> Unchecked.call(() -> (T) (Double) rs.getDouble(1));
+        if (clazz == boolean.class || clazz == Boolean.class)
+            return rs -> Unchecked.call(() -> (T) (Boolean) rs.getBoolean(1));
+        if (clazz == char.class || clazz == Character.class)
+            return rs -> Unchecked.call(() -> (T) (Character) rs.getString(1).charAt(0));
+        if (clazz == String.class)
+            return rs -> Unchecked.call(() -> (T) rs.getString(1));
+        if (clazz == Date.class)
+            return rs -> Unchecked.call(() -> (T) rs.getDate(1));
+        if (Iterable.class.isAssignableFrom(clazz))
+            if (withCollections)
+                return getMapper(returnType.type(0), false);
+            else
+                throw new IllegalArgumentException("Nested iterables are not supported");
+
+
+        PreparedReadQuery<T> preparedReadQuery = prepareSelect(clazz);
+        return preparedReadQuery.mapper;
+    }
+
+    protected <T> Mapper<Flow, T> chooseResult(Generic returnType) {
+        Class clazz = returnType.clazz;
+        if (Iterable.class.isAssignableFrom(clazz))
+            return (flow) -> (T) flow.toList().get();
+        else
+            return flow -> (T) flow.first().get();
+    }
+
     public <T> SqlGetter<T> getGetter(Class<T> clazz, FieldInfo field, int i) {
         FieldReflection reflection = field.reflection;
         switch (reflection.getType()) {
@@ -580,6 +625,7 @@ public class DBService implements Service, PostConstruct {
 
     protected Map<Method, Mapper<Object[], Object>> prepareMethods(Class clazz) {
         Generic generic = new Generic(clazz);
+        Class type = generic.getInterface(0).type(0).clazz;
         List<GenericMethod> genericMethods = generic.methods();
         Map<Method, Mapper<Object[], Object>> mappers = new HashMap<>(genericMethods.size() + 1, 1);
         for (GenericMethod gm : genericMethods) {
@@ -588,18 +634,21 @@ public class DBService implements Service, PostConstruct {
             if (gm.method.isDefault())
                 continue;
 
-            Mapper<Object[], Object> mapper = createMapper(gm);
+            Mapper<Object[], Object> mapper = createMapper(type, gm);
             mappers.put(gm.method, mapper);
         }
         return mappers;
     }
 
-    protected <T> Mapper<Object[], T> createMapper(GenericMethod genericMethod) {
+    protected <T> Mapper<Object[], T> createMapper(Class clazz, GenericMethod genericMethod) {
         //TODO: http://docs.spring.io/spring-data/jpa/docs/1.4.3.RELEASE/reference/html/repositories.html#repositories.query-methods.query-creation
         //TODO: http://docs.spring.io/spring-data/jpa/docs/1.4.3.RELEASE/reference/html/jpa.repositories.html#jpa.query-methods.query-creation
         String name = genericMethod.method.getName();
         Class returnType = genericMethod.returnType.clazz;
         List<Generic> args = genericMethod.args;
+        Mapper<? super ResultSet, T> typeMapper = getMapper(genericMethod.returnType);
+        Mapper<Flow, T> resultMapper = chooseResult(genericMethod.returnType);
+        Mapper<Flow<ResultSet>, T> finalMapper = flow -> resultMapper.map(flow.map(typeMapper));
 
         System.out.println(name + "(" + args + ") invoked with " + args);
         String[] parts = name.split("By", 2);
@@ -626,35 +675,32 @@ public class DBService implements Service, PostConstruct {
             }
         }
 
-//        if ("count".equals(name)) {
-//            return objects -> executeQuery("select count(id) from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
-//                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
-//                    .first()
-//                    .get()
-//            );
-//        }
-//
-//        if ("delete".equals(name)) {
-//            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
-//                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
-//                    .first()
-//                    .get()
-//            );
-//        }
-//        if ("save".equals(name)) {
-//            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
-//                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
-//                    .first()
-//                    .get()
-//            );
-//        }
-//        if ("exists".equals(name)) {
-//            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), args, flow -> flow
-//                    .map(rs -> (T) Unchecked.call(() -> rs.getLong(1)))
-//                    .first()
-//                    .get()
-//            );
-//        }
+        if ("count".equals(name)) {
+            String sql = "select count(id) from " + toSqlString(clazz.getSimpleName());
+            return objects -> executeQuery(sql, finalMapper);
+        }
+
+        if ("delete".equals(name)) {
+            return objects -> executeQuery("delete from " + toSqlString(clazz.getSimpleName()), flow -> flow
+                    .map(typeMapper)
+                    .first()
+                    .get()
+            );
+        }
+        if ("save".equals(name)) {
+            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), flow -> flow
+                    .map(typeMapper)
+                    .first()
+                    .get()
+            );
+        }
+        if ("exists".equals(name)) {
+            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), flow -> flow
+                    .map(typeMapper)
+                    .first()
+                    .get()
+            );
+        }
 
         throw new IllegalArgumentException("Cannot create mapper for " + genericMethod);
     }
