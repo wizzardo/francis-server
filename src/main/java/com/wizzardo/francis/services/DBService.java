@@ -4,8 +4,10 @@ import com.wizzardo.francis.domain.Application;
 import com.wizzardo.http.framework.di.PostConstruct;
 import com.wizzardo.http.framework.di.Service;
 import com.wizzardo.tools.cache.Cache;
+import com.wizzardo.tools.collections.Pair;
 import com.wizzardo.tools.collections.flow.Flow;
 import com.wizzardo.tools.collections.flow.FlowProcessor;
+import com.wizzardo.tools.interfaces.BiConsumer;
 import com.wizzardo.tools.interfaces.Mapper;
 import com.wizzardo.tools.misc.Unchecked;
 import com.wizzardo.tools.misc.pool.Pool;
@@ -20,6 +22,8 @@ import java.lang.reflect.Proxy;
 import java.sql.*;
 import java.util.*;
 import java.util.Date;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Created by wizzardo on 24/01/17.
@@ -581,9 +585,32 @@ public class DBService implements Service, PostConstruct {
         Application get();
     }
 
+    static void test(String a, String b) {
+        if (!a.equals(b))
+            throw new AssertionError(a + " != " + b);
+    }
+
     public static void main(String[] main) throws IOException, InterruptedException {
         DBService dbService = new DBService();
         dbService.init();
+
+        test("name=? and age=?", dbService.prepareArguments("NameAndAge").toString());
+        test("name=? or age=?", dbService.prepareArguments("NameOrAge").toString());
+        test("name=? or age=?", dbService.prepareArguments("NameIsOrAgeIs").toString());
+        test("age between ? and ?", dbService.prepareArguments("AgeBetween").toString());
+        test("age<?", dbService.prepareArguments("AgeLessThan").toString());
+        test("age>?", dbService.prepareArguments("AgeGreaterThan").toString());
+        test("age<?", dbService.prepareArguments("AgeBefore").toString());
+        test("age>?", dbService.prepareArguments("AgeAfter").toString());
+        test("age is null", dbService.prepareArguments("AgeIsNull").toString());
+        test("age not null", dbService.prepareArguments("AgeIsNotNull").toString());
+        test("age not null", dbService.prepareArguments("AgeNotNull").toString());
+        test("age like ?", dbService.prepareArguments("AgeLike").toString());
+        test("age<>?", dbService.prepareArguments("AgeNot").toString());
+        test("age in ?", dbService.prepareArguments("AgeIn").toString());
+        test("age not in ?", dbService.prepareArguments("AgeNotIn").toString());
+        test("active=true", dbService.prepareArguments("ActiveTrue").toString());
+        test("active=false", dbService.prepareArguments("ActiveFalse").toString());
 
         DataService dataService = new DataService();
         dataService.dbService = dbService;
@@ -681,27 +708,131 @@ public class DBService implements Service, PostConstruct {
         }
 
         if ("delete".equals(name)) {
-            return objects -> executeQuery("delete from " + toSqlString(clazz.getSimpleName()), flow -> flow
-                    .map(typeMapper)
-                    .first()
-                    .get()
-            );
+            String sql = "delete from " + toSqlString(clazz.getSimpleName());
+            return objects -> executeQuery(sql, finalMapper);
         }
         if ("save".equals(name)) {
-            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), flow -> flow
-                    .map(typeMapper)
-                    .first()
-                    .get()
-            );
+            PreparedWriteQuery preparedInsert = createPreparedInsert(clazz);
+            return objects -> (T) executeQuery(preparedInsert.query, preparedInsert.setter, objects[0]);
         }
         if ("exists".equals(name)) {
-            return objects -> executeQuery("delete from " + toSqlString(returnType.getSimpleName()), flow -> flow
-                    .map(typeMapper)
-                    .first()
-                    .get()
-            );
+            String sql = "select count(id)=1 from " + toSqlString(clazz.getSimpleName());
+            return objects -> executeQuery(sql, finalMapper);
         }
 
         throw new IllegalArgumentException("Cannot create mapper for " + genericMethod);
+    }
+
+    protected SqlArguments prepareArguments(String s) {
+        SqlArguments arguments = new SqlArguments();
+
+        Pattern pattern = Pattern.compile("And|Or|Between|LessThan|GreaterThan|After|Before|IsNull|IsNotNull|NotNull|Like|NotLike|NotIn|IsNot|Not|Is|In|True|False");
+        Matcher matcher = pattern.matcher(s);
+
+        int position = 0;
+        while (matcher.find(position)) {
+            String operator = matcher.group();
+            String field = toSqlString(s.substring(position, matcher.start()));
+            if (operator.equals("And")) {
+                if (!field.isEmpty())
+                    arguments.append(SqlOperator.EQUALS, field);
+                arguments.append(SqlOperator.AND);
+            } else if (operator.equals("Or")) {
+                if (!field.isEmpty())
+                    arguments.append(SqlOperator.EQUALS, field);
+                arguments.append(SqlOperator.OR);
+            } else if (operator.equals("Is"))
+                arguments.append(SqlOperator.EQUALS, field);
+            else if (operator.equals("Between"))
+                arguments.append(SqlOperator.BETWEEN, field);
+            else if (operator.equals("LessThan"))
+                arguments.append(SqlOperator.LESS_THAN, field);
+            else if (operator.equals("GreaterThan"))
+                arguments.append(SqlOperator.GREATER_THAN, field);
+            else if (operator.equals("After"))
+                arguments.append(SqlOperator.AFTER, field);
+            else if (operator.equals("Before"))
+                arguments.append(SqlOperator.BEFORE, field);
+            else if (operator.equals("IsNull"))
+                arguments.append(SqlOperator.IS_NULL, field);
+            else if (operator.equals("IsNotNull") || operator.equals("NotNull"))
+                arguments.append(SqlOperator.IS_NOT_NULL, field);
+            else if (operator.equals("Like"))
+                arguments.append(SqlOperator.LIKE, field);
+            else if (operator.equals("NotLike"))
+                arguments.append(SqlOperator.NOT_LIKE, field);
+            else if (operator.equals("IsNot") || operator.equals("Not"))
+                arguments.append(SqlOperator.IS_NOT, field);
+            else if (operator.equals("In"))
+                arguments.append(SqlOperator.IN, field);
+            else if (operator.equals("NotIn"))
+                arguments.append(SqlOperator.NOT_IN, field);
+            else if (operator.equals("True"))
+                arguments.append(SqlOperator.TRUE, field);
+            else if (operator.equals("False"))
+                arguments.append(SqlOperator.FALSE, field);
+            else
+                throw new IllegalArgumentException("Operator " + operator + " is not supported");
+
+            position = matcher.end();
+        }
+        if (position < s.length())
+            arguments.append(SqlOperator.EQUALS, toSqlString(s.substring(position)));
+
+        return arguments;
+    }
+
+    static class SqlArguments {
+        List<Pair<SqlOperator, String>> arguments = new ArrayList<>();
+
+        public SqlArguments append(SqlOperator operator, String field) {
+            arguments.add(new Pair<>(operator, field));
+            return this;
+        }
+
+        public SqlArguments append(SqlOperator operator) {
+            return append(operator, null);
+        }
+
+        public void build(StringBuilder sb) {
+            for (Pair<SqlOperator, String> pair : arguments) {
+                pair.key.builder.consume(sb, pair.value);
+            }
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            build(sb);
+            return sb.toString();
+        }
+    }
+
+    enum SqlOperator {
+        AND((sb, field) -> sb.append(" and ")),
+        OR((sb, field) -> sb.append(" or ")),
+        EQUALS((sb, field) -> sb.append(field).append("=?")),
+        LESS_THAN((sb, field) -> sb.append(field).append("<?")),
+        GREATER_THAN((sb, field) -> sb.append(field).append(">?")),
+        AFTER((sb, field) -> sb.append(field).append(">?")),
+        BEFORE((sb, field) -> sb.append(field).append("<?")),
+        IS_NULL((sb, field) -> sb.append(field).append(" is null")),
+        IS_NOT_NULL((sb, field) -> sb.append(field).append(" not null")),
+        LIKE((sb, field) -> sb.append(field).append(" like ?")),
+        NOT_LIKE((sb, field) -> sb.append(field).append(" not like ?")),
+        IN((sb, field) -> sb.append(field).append(" in ?")),
+        NOT_IN((sb, field) -> sb.append(field).append(" not in ?")),
+        IS_NOT((sb, field) -> sb.append(field).append("<>?")),
+        BETWEEN((sb, field) -> sb.append(field).append(" between ? and ?")),
+        TRUE((sb, field) -> sb.append(field).append("=true")),
+        FALSE((sb, field) -> sb.append(field).append("=false")),
+        NOOP((sb, field) -> {
+        }),;
+
+        final BiConsumer<StringBuilder, String> builder;
+
+        SqlOperator(BiConsumer<StringBuilder, String> builder) {
+            this.builder = builder;
+        }
     }
 }
