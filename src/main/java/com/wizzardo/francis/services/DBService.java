@@ -112,7 +112,7 @@ public class DBService implements Service, PostConstruct {
     }
 
     public <R> R executeQuery(String sql, Object[] args, Mapper<Flow<ResultSet>, R> mapper) {
-//        System.out.println("executeQuery: " + sql + " with args: " + Arrays.toString(args));
+        System.out.println("executeQuery: " + sql + " with args: " + Arrays.toString(args));
         return provide(connection -> {
             PreparedStatement statement = connection.prepareStatement(sql);
             if (args != null) {
@@ -120,6 +120,15 @@ public class DBService implements Service, PostConstruct {
                     statement.setObject(i + 1, args[i]);
                 }
             }
+            return mapper.map(FlowSql.of(statement.executeQuery()));
+        });
+    }
+
+    public <T, R> R executeQuery(String sql, SqlSetter<T> setter, T t, Mapper<Flow<ResultSet>, R> mapper) {
+        System.out.println("executeQuery: " + sql);
+        return provide(connection -> {
+            PreparedStatement statement = connection.prepareStatement(sql);
+            setter.bind(t, statement);
             return mapper.map(FlowSql.of(statement.executeQuery()));
         });
     }
@@ -143,6 +152,15 @@ public class DBService implements Service, PostConstruct {
             for (int i = 0; i < args.length; i++) {
                 statement.setObject(i + 1, args[i]);
             }
+            return statement.executeUpdate();
+        });
+    }
+
+    public <T> int executeUpdate(String sql, SqlSetter<T> setter, T t) {
+        System.out.println("executeQuery: " + sql);
+        return provide(connection -> {
+            PreparedStatement statement = connection.prepareStatement(sql);
+            setter.bind(t, statement);
             return statement.executeUpdate();
         });
     }
@@ -578,7 +596,7 @@ public class DBService implements Service, PostConstruct {
     interface ApplicationRepository extends CrudRepository<Application, Long> {
         Application getByName(String name);
 
-        List<Application> findByName(String name);
+        Application findByName(String name);
 
         List<Application> getAll();
 
@@ -594,23 +612,23 @@ public class DBService implements Service, PostConstruct {
         DBService dbService = new DBService();
         dbService.init();
 
-        test("name=? and age=?", dbService.prepareArguments("NameAndAge").toString());
-        test("name=? or age=?", dbService.prepareArguments("NameOrAge").toString());
-        test("name=? or age=?", dbService.prepareArguments("NameIsOrAgeIs").toString());
-        test("age between ? and ?", dbService.prepareArguments("AgeBetween").toString());
-        test("age<?", dbService.prepareArguments("AgeLessThan").toString());
-        test("age>?", dbService.prepareArguments("AgeGreaterThan").toString());
-        test("age<?", dbService.prepareArguments("AgeBefore").toString());
-        test("age>?", dbService.prepareArguments("AgeAfter").toString());
-        test("age is null", dbService.prepareArguments("AgeIsNull").toString());
-        test("age not null", dbService.prepareArguments("AgeIsNotNull").toString());
-        test("age not null", dbService.prepareArguments("AgeNotNull").toString());
-        test("age like ?", dbService.prepareArguments("AgeLike").toString());
-        test("age<>?", dbService.prepareArguments("AgeNot").toString());
-        test("age in ?", dbService.prepareArguments("AgeIn").toString());
-        test("age not in ?", dbService.prepareArguments("AgeNotIn").toString());
-        test("active=true", dbService.prepareArguments("ActiveTrue").toString());
-        test("active=false", dbService.prepareArguments("ActiveFalse").toString());
+        test(" where name=? and age=?", dbService.prepareArguments("NameAndAge").toString());
+        test(" where name=? or age=?", dbService.prepareArguments("NameOrAge").toString());
+        test(" where name=? or age=?", dbService.prepareArguments("NameIsOrAgeIs").toString());
+        test(" where age between ? and ?", dbService.prepareArguments("AgeBetween").toString());
+        test(" where age<?", dbService.prepareArguments("AgeLessThan").toString());
+        test(" where age>?", dbService.prepareArguments("AgeGreaterThan").toString());
+        test(" where age<?", dbService.prepareArguments("AgeBefore").toString());
+        test(" where age>?", dbService.prepareArguments("AgeAfter").toString());
+        test(" where age is null", dbService.prepareArguments("AgeIsNull").toString());
+        test(" where age not null", dbService.prepareArguments("AgeIsNotNull").toString());
+        test(" where age not null", dbService.prepareArguments("AgeNotNull").toString());
+        test(" where age like ?", dbService.prepareArguments("AgeLike").toString());
+        test(" where age<>?", dbService.prepareArguments("AgeNot").toString());
+        test(" where age in ?", dbService.prepareArguments("AgeIn").toString());
+        test(" where age not in ?", dbService.prepareArguments("AgeNotIn").toString());
+        test(" where active=true", dbService.prepareArguments("ActiveTrue").toString());
+        test(" where active=false", dbService.prepareArguments("ActiveFalse").toString());
 
         DataService dataService = new DataService();
         dataService.dbService = dbService;
@@ -638,6 +656,19 @@ public class DBService implements Service, PostConstruct {
         System.out.println(proxy.getAll());
         System.out.println(proxy.get());
         System.out.println(proxy.count());
+
+        Application test = proxy.findByName("test");
+        if (test != null) {
+            System.out.println(proxy.exists(test.id));
+            proxy.delete(test);
+            System.out.println(proxy.exists(test.id));
+        } else {
+            test = new Application();
+            test.name = "test";
+            Application saved = proxy.save(test);
+            System.out.println("saved id: " + saved.id);
+            System.out.println(proxy.exists(saved.id));
+        }
     }
 
     protected <T> T createRepositoryInstance(Class<T> repositoryClass) {
@@ -671,53 +702,47 @@ public class DBService implements Service, PostConstruct {
         //TODO: http://docs.spring.io/spring-data/jpa/docs/1.4.3.RELEASE/reference/html/repositories.html#repositories.query-methods.query-creation
         //TODO: http://docs.spring.io/spring-data/jpa/docs/1.4.3.RELEASE/reference/html/jpa.repositories.html#jpa.query-methods.query-creation
         String name = genericMethod.method.getName();
-        Class returnType = genericMethod.returnType.clazz;
         List<Generic> args = genericMethod.args;
         Mapper<? super ResultSet, T> typeMapper = getMapper(genericMethod.returnType);
         Mapper<Flow, T> resultMapper = chooseResult(genericMethod.returnType);
         Mapper<Flow<ResultSet>, T> finalMapper = flow -> resultMapper.map(flow.map(typeMapper));
 
-        System.out.println(name + "(" + args + ") invoked with " + args);
         String[] parts = name.split("By", 2);
         String verb = parts[0];
+        String by = parts.length == 2 ? parts[1] : (args.size() == 1 ? "id" : "");
+        SqlArguments arguments = prepareArguments(by);
+
         if (verb.startsWith("find") || verb.startsWith("read") || verb.startsWith("get")) {
-            if (args.size() != 1) {
-                if (List.class.isAssignableFrom(returnType)) {
-                    return createGetAll(genericMethod.returnType.type(0).clazz);
-                } else {
-                    return createGet(returnType);
-                }
-            } else {
-                String by;
-                if (parts.length == 2)
-                    by = parts[1];
-                else
-                    by = "id";
-                String field = toSqlString(by);
-                if (List.class.isAssignableFrom(returnType)) {
-                    return createGetAllBy(genericMethod.returnType.type(0).clazz, field);
-                } else {
-                    return createGetBy(returnType, field);
-                }
-            }
+            String sql = prepareSelect(clazz).query + arguments;
+            return objects -> executeQuery(sql, objects, finalMapper);
         }
 
         if ("count".equals(name)) {
-            String sql = "select count(id) from " + toSqlString(clazz.getSimpleName());
-            return objects -> executeQuery(sql, finalMapper);
+            String sql = "select count(id) from " + toSqlString(clazz.getSimpleName()) + arguments;
+            return objects -> executeQuery(sql, objects, finalMapper);
         }
-
         if ("delete".equals(name)) {
-            String sql = "delete from " + toSqlString(clazz.getSimpleName());
-            return objects -> executeQuery(sql, finalMapper);
+            String sql = "delete from " + toSqlString(clazz.getSimpleName()) + arguments;
+            if (args.size() == 1 && args.get(0).clazz == clazz) {
+                Fields<FieldInfo> fields = new Fields<>(clazz);
+                SqlSetter<Object> setter = getSetter(clazz, fields.get("id"), 1);
+                return objects -> (T) (Integer) executeUpdate(sql, setter, objects[0]);
+            } else
+                return objects -> (T) (Integer) executeUpdate(sql, objects);
         }
         if ("save".equals(name)) {
             PreparedWriteQuery preparedInsert = createPreparedInsert(clazz);
-            return objects -> (T) executeQuery(preparedInsert.query, preparedInsert.setter, objects[0]);
+            Fields<FieldInfo> fields = new Fields<>(clazz);
+            FieldInfo id = fields.get("id");
+            return objects -> {
+                Object object = objects[0];
+                id.reflection.setObject(object, executeQuery(preparedInsert.query, preparedInsert.setter, object));
+                return (T) object;
+            };
         }
         if ("exists".equals(name)) {
-            String sql = "select count(id)=1 from " + toSqlString(clazz.getSimpleName());
-            return objects -> executeQuery(sql, finalMapper);
+            String sql = "select count(id)=1 from " + toSqlString(clazz.getSimpleName()) + arguments;
+            return objects -> executeQuery(sql, objects, finalMapper);
         }
 
         throw new IllegalArgumentException("Cannot create mapper for " + genericMethod);
@@ -733,46 +758,67 @@ public class DBService implements Service, PostConstruct {
         while (matcher.find(position)) {
             String operator = matcher.group();
             String field = toSqlString(s.substring(position, matcher.start()));
-            if (operator.equals("And")) {
-                if (!field.isEmpty())
+            switch (operator) {
+                case "And":
+                    if (!field.isEmpty())
+                        arguments.append(SqlOperator.EQUALS, field);
+                    arguments.append(SqlOperator.AND);
+                    break;
+                case "Or":
+                    if (!field.isEmpty())
+                        arguments.append(SqlOperator.EQUALS, field);
+                    arguments.append(SqlOperator.OR);
+                    break;
+                case "Is":
                     arguments.append(SqlOperator.EQUALS, field);
-                arguments.append(SqlOperator.AND);
-            } else if (operator.equals("Or")) {
-                if (!field.isEmpty())
-                    arguments.append(SqlOperator.EQUALS, field);
-                arguments.append(SqlOperator.OR);
-            } else if (operator.equals("Is"))
-                arguments.append(SqlOperator.EQUALS, field);
-            else if (operator.equals("Between"))
-                arguments.append(SqlOperator.BETWEEN, field);
-            else if (operator.equals("LessThan"))
-                arguments.append(SqlOperator.LESS_THAN, field);
-            else if (operator.equals("GreaterThan"))
-                arguments.append(SqlOperator.GREATER_THAN, field);
-            else if (operator.equals("After"))
-                arguments.append(SqlOperator.AFTER, field);
-            else if (operator.equals("Before"))
-                arguments.append(SqlOperator.BEFORE, field);
-            else if (operator.equals("IsNull"))
-                arguments.append(SqlOperator.IS_NULL, field);
-            else if (operator.equals("IsNotNull") || operator.equals("NotNull"))
-                arguments.append(SqlOperator.IS_NOT_NULL, field);
-            else if (operator.equals("Like"))
-                arguments.append(SqlOperator.LIKE, field);
-            else if (operator.equals("NotLike"))
-                arguments.append(SqlOperator.NOT_LIKE, field);
-            else if (operator.equals("IsNot") || operator.equals("Not"))
-                arguments.append(SqlOperator.IS_NOT, field);
-            else if (operator.equals("In"))
-                arguments.append(SqlOperator.IN, field);
-            else if (operator.equals("NotIn"))
-                arguments.append(SqlOperator.NOT_IN, field);
-            else if (operator.equals("True"))
-                arguments.append(SqlOperator.TRUE, field);
-            else if (operator.equals("False"))
-                arguments.append(SqlOperator.FALSE, field);
-            else
-                throw new IllegalArgumentException("Operator " + operator + " is not supported");
+                    break;
+                case "Between":
+                    arguments.append(SqlOperator.BETWEEN, field);
+                    break;
+                case "LessThan":
+                    arguments.append(SqlOperator.LESS_THAN, field);
+                    break;
+                case "GreaterThan":
+                    arguments.append(SqlOperator.GREATER_THAN, field);
+                    break;
+                case "After":
+                    arguments.append(SqlOperator.AFTER, field);
+                    break;
+                case "Before":
+                    arguments.append(SqlOperator.BEFORE, field);
+                    break;
+                case "IsNull":
+                    arguments.append(SqlOperator.IS_NULL, field);
+                    break;
+                case "IsNotNull":
+                case "NotNull":
+                    arguments.append(SqlOperator.IS_NOT_NULL, field);
+                    break;
+                case "Like":
+                    arguments.append(SqlOperator.LIKE, field);
+                    break;
+                case "NotLike":
+                    arguments.append(SqlOperator.NOT_LIKE, field);
+                    break;
+                case "IsNot":
+                case "Not":
+                    arguments.append(SqlOperator.IS_NOT, field);
+                    break;
+                case "In":
+                    arguments.append(SqlOperator.IN, field);
+                    break;
+                case "NotIn":
+                    arguments.append(SqlOperator.NOT_IN, field);
+                    break;
+                case "True":
+                    arguments.append(SqlOperator.TRUE, field);
+                    break;
+                case "False":
+                    arguments.append(SqlOperator.FALSE, field);
+                    break;
+                default:
+                    throw new IllegalArgumentException("Operator " + operator + " is not supported");
+            }
 
             position = matcher.end();
         }
@@ -795,6 +841,10 @@ public class DBService implements Service, PostConstruct {
         }
 
         public void build(StringBuilder sb) {
+            if (arguments.isEmpty())
+                return;
+
+            sb.append(" where ");
             for (Pair<SqlOperator, String> pair : arguments) {
                 pair.key.builder.consume(sb, pair.value);
             }
