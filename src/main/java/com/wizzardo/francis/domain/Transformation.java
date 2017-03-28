@@ -7,9 +7,9 @@ import java.util.Date;
  */
 public class Transformation {
 
-    public long id;
-    public long applicationId;
-    public long version;
+    public Long id;
+    public Long applicationId;
+    public Long version;
     public Date lastUpdated;
     public Date dateCreated;
     public String className;

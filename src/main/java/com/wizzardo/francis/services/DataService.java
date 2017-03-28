@@ -1,6 +1,9 @@
 package com.wizzardo.francis.services;
 
+import com.wizzardo.francis.domain.Application;
 import com.wizzardo.francis.domain.Transformation;
+import com.wizzardo.francis.repositories.ApplicationRepository;
+import com.wizzardo.francis.repositories.TransformationRepository;
 import com.wizzardo.http.framework.di.Service;
 import com.wizzardo.tools.collections.flow.Flow;
 import com.wizzardo.tools.interfaces.Mapper;
@@ -16,9 +19,11 @@ import static com.wizzardo.francis.services.DBService.args;
  * Created by wizzardo on 04/02/17.
  */
 public class DataService implements Service {
-
     protected static final Mapper<Flow<ResultSet>, Long> FLOW_FIRST_LONG = flow ->
             flow.map(rs -> Unchecked.call(() -> rs.getLong(1))).first().get();
+
+    TransformationRepository transformationRepository;
+    ApplicationRepository applicationRepository;
 
     DBService dbService;
 
@@ -27,11 +32,18 @@ public class DataService implements Service {
     }
 
     public Long findApplicationId(String appName) {
-        return dbService.executeQuery("select id from application where name = ? limit 1", args(appName), FLOW_FIRST_LONG);
+        Application app = applicationRepository.findByName(appName);
+        if (app != null)
+            return app.id;
+        else
+            return null;
     }
 
     public Long saveApplication(String appName) {
-        return dbService.executeQuery("insert into application (name) values (?) RETURNING ID", args(appName), FLOW_FIRST_LONG);
+        Application app = new Application();
+        app.name = appName;
+        applicationRepository.save(app);
+        return app.id;
     }
 
     public Long saveApplicationIfNot(String name) {
@@ -62,112 +74,26 @@ public class DataService implements Service {
 
 
     public List<Transformation> findAllTransformationsByApplicationId(long applicationId) {
-        return dbService.executeQuery("select" +
-                " id," +
-                " application_id," +
-                " version," +
-                " last_updated," +
-                " date_created," +
-                " class_name," +
-                " method," +
-                " method_descriptor," +
-                " before," +
-                " after," +
-                " variables " +
-                " from transformation where application_id = ?", args(applicationId), flow -> flow
-                .map(rs -> Unchecked.call(() -> {
-                    Transformation t = new Transformation();
-                    t.id = rs.getLong(1);
-                    t.applicationId = rs.getLong(2);
-                    t.version = rs.getLong(3);
-                    t.lastUpdated = rs.getDate(4);
-                    t.dateCreated = rs.getDate(5);
-                    t.className = rs.getString(6);
-                    t.method = rs.getString(7);
-                    t.methodDescriptor = rs.getString(8);
-                    t.before = rs.getString(9);
-                    t.after = rs.getString(10);
-                    t.variables = rs.getString(11);
-                    return t;
-                }))
-                .toList()
-                .get()
-        );
+        return transformationRepository.findAllByApplicationId(applicationId);
     }
 
     public Transformation saveTransformation(Transformation t) {
-        t.id = dbService.executeQuery("insert into transformation (" +
-                        " application_id," +
-                        " version," +
-                        " last_updated," +
-                        " date_created," +
-                        " class_name," +
-                        " method," +
-                        " method_descriptor," +
-                        " before," +
-                        " after," +
-                        " variables " +
-                        ") values (?,?,now(),now(),?, ?,?,?,?,?) RETURNING ID",
-                args(t.applicationId, t.version, t.className,
-                        t.method, t.methodDescriptor, t.before, t.after, t.variables), FLOW_FIRST_LONG);
-        return t;
+        return transformationRepository.save(t);
     }
 
-    public boolean updateTransformation(Transformation t) {
-        return 1 == dbService.executeUpdate("update transformation set " +
-                        " version = version + 1," +
-                        " last_updated = now()," +
-                        " class_name = ?," +
-                        " method = ?," +
-                        " method_descriptor = ?," +
-                        " before = ?," +
-                        " after = ?," +
-                        " variables = ?" +
-                        " where" +
-                        " id = ?",
-                args(t.className, t.method, t.methodDescriptor,
-                        t.before, t.after, t.variables, t.id));
+    public void updateTransformation(Transformation t) {
+        transformationRepository.save(t);
     }
 
     public boolean deleteTransformation(Transformation t) {
         return deleteTransformation(t.id);
     }
 
-    public boolean deleteTransformation(long id) {
-        return 1 == dbService.executeUpdate("delete from transformation where id = ?", args(id));
+    public boolean deleteTransformation(Long id) {
+        return transformationRepository.delete(id) == 1;
     }
 
     public Transformation getTransformation(Long id) {
-        return dbService.executeQuery("select" +
-                " id," +
-                " application_id," +
-                " version," +
-                " last_updated," +
-                " date_created," +
-                " class_name," +
-                " method," +
-                " method_descriptor," +
-                " before," +
-                " after," +
-                " variables " +
-                " from transformation where id = ?", args(id), flow -> flow
-                .map(rs -> Unchecked.call(() -> {
-                    Transformation t = new Transformation();
-                    t.id = rs.getLong(1);
-                    t.applicationId = rs.getLong(2);
-                    t.version = rs.getLong(3);
-                    t.lastUpdated = rs.getDate(4);
-                    t.dateCreated = rs.getDate(5);
-                    t.className = rs.getString(6);
-                    t.method = rs.getString(7);
-                    t.methodDescriptor = rs.getString(8);
-                    t.before = rs.getString(9);
-                    t.after = rs.getString(10);
-                    t.variables = rs.getString(11);
-                    return t;
-                }))
-                .first()
-                .get()
-        );
+        return transformationRepository.findOne(id);
     }
 }

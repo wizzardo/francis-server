@@ -269,13 +269,12 @@ public class ControlWebSocketHandler extends DefaultWebSocketHandler implements 
             t.after = json.getAsString("after");
             t.variables = json.getAsJsonArray("variables").toString();
 
-            if (appName == null || t.id == -1 || t.className == null || t.method == null || t.methodDescriptor == null || t.before == null || t.after == null || t.variables == null) {
+            if (appName == null || t.id.equals(-1L) || t.className == null || t.method == null || t.methodDescriptor == null || t.before == null || t.after == null || t.variables == null) {
                 sendCommandHelp(listener, "updateTransformation", "id", "appName", "className", "method", "methodDescriptor", "before", "after", "variables");
                 return;
             }
 
-            if (!dataService.updateTransformation(t))
-                throw new IllegalArgumentException("Transformation " + t.id + " wasn't updated");
+            dataService.updateTransformation(t);
 
             findAllClients(it -> it.applicationId.equals(applicationId))
                     .forEach(it -> clientsHandler.addTransformation(it, t));
