@@ -1,8 +1,9 @@
 package com.wizzardo.francis.services;
 
 import com.wizzardo.francis.domain.Application;
-import com.wizzardo.http.framework.di.PostConstruct;
-import com.wizzardo.http.framework.di.Service;
+import com.wizzardo.francis.repositories.ApplicationRepository;
+import com.wizzardo.francis.services.orm.CrudRepository;
+import com.wizzardo.http.framework.di.*;
 import com.wizzardo.tools.cache.Cache;
 import com.wizzardo.tools.collections.Pair;
 import com.wizzardo.tools.collections.flow.Flow;
@@ -28,7 +29,7 @@ import java.util.regex.Pattern;
 /**
  * Created by wizzardo on 24/01/17.
  */
-public class DBService implements Service, PostConstruct {
+public class DBService implements Service, PostConstruct, DependencyForge {
     protected static final char[] SQL_CHARS_TABLE = new char[128];
 
     Cache<Class, PreparedReadQuery> preparedSelects = new Cache<>("preparedSelects", 0);
@@ -52,6 +53,8 @@ public class DBService implements Service, PostConstruct {
     public void init() {
         Unchecked.call(() -> Class.forName("org.postgresql.Driver"));
 //        Unchecked.call(() -> Class.forName("com.mysql.jdbc.Driver"));
+
+        DependencyFactory.get().addForge(this);
     }
 
     public <R> R provide(Pool.UnsafeMapper<Connection, R> mapper) {
@@ -64,6 +67,14 @@ public class DBService implements Service, PostConstruct {
 //            String url = "jdbc:mysql://10.0.3.124:3306/test";
             return DriverManager.getConnection(url, "username", "password");
         });
+    }
+
+    @Override
+    public <T> Dependency<? extends T> forge(Class<T> clazz) {
+        if (CrudRepository.class.isAssignableFrom(clazz))
+            return new SingletonDependency<>(createRepositoryInstance(clazz));
+
+        return null;
     }
 
     static class FlowSql extends Flow<ResultSet> {
@@ -579,30 +590,6 @@ public class DBService implements Service, PostConstruct {
         }
     }
 
-    interface CrudRepository<T, I> {
-        <S extends T> S save(S entity);
-
-        T findOne(I primaryKey);
-
-        Iterable<T> findAll();
-
-        Long count();
-
-        void delete(T entity);
-
-        boolean exists(I primaryKey);
-    }
-
-    interface ApplicationRepository extends CrudRepository<Application, Long> {
-        Application getByName(String name);
-
-        Application findByName(String name);
-
-        List<Application> getAll();
-
-        Application get();
-    }
-
     static void test(String a, String b) {
         if (!a.equals(b))
             throw new AssertionError(a + " != " + b);
@@ -651,7 +638,6 @@ public class DBService implements Service, PostConstruct {
 
 
         ApplicationRepository proxy = dbService.createRepositoryInstance(ApplicationRepository.class);
-        System.out.println(proxy.getByName("idea"));
         System.out.println(proxy.findByName("idea"));
         System.out.println(proxy.getAll());
         System.out.println(proxy.get());
