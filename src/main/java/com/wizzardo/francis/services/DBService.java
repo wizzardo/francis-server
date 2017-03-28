@@ -3,12 +3,11 @@ package com.wizzardo.francis.services;
 import com.wizzardo.francis.domain.Application;
 import com.wizzardo.francis.repositories.ApplicationRepository;
 import com.wizzardo.francis.services.orm.CrudRepository;
+import com.wizzardo.francis.services.orm.SqlArguments;
 import com.wizzardo.http.framework.di.*;
 import com.wizzardo.tools.cache.Cache;
-import com.wizzardo.tools.collections.Pair;
 import com.wizzardo.tools.collections.flow.Flow;
 import com.wizzardo.tools.collections.flow.FlowProcessor;
-import com.wizzardo.tools.interfaces.BiConsumer;
 import com.wizzardo.tools.interfaces.Mapper;
 import com.wizzardo.tools.misc.Unchecked;
 import com.wizzardo.tools.misc.pool.Pool;
@@ -23,14 +22,14 @@ import java.lang.reflect.Proxy;
 import java.sql.*;
 import java.util.*;
 import java.util.Date;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+
+import static com.wizzardo.francis.services.orm.SqlArguments.prepareArguments;
+import static com.wizzardo.francis.services.orm.SqlTools.toSqlString;
 
 /**
  * Created by wizzardo on 24/01/17.
  */
 public class DBService implements Service, PostConstruct, DependencyForge {
-    protected static final char[] SQL_CHARS_TABLE = new char[128];
 
     Cache<Class, PreparedReadQuery> preparedSelects = new Cache<>("preparedSelects", 0);
 
@@ -40,14 +39,6 @@ public class DBService implements Service, PostConstruct, DependencyForge {
             .queue(PoolBuilder.createSharedQueueSupplier())
             .limitSize(16)
             .build();
-
-    static {
-        String s = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            SQL_CHARS_TABLE[c] = ("" + c).toLowerCase().charAt(0);
-        }
-    }
 
     @Override
     public void init() {
@@ -556,20 +547,6 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         }
     }
 
-    protected String toSqlString(String name) {
-        int length = name.length();
-        StringBuilder sb = new StringBuilder(length);
-        for (int i = 0; i < length; i++) {
-            char c = name.charAt(i);
-            char lowerCase = SQL_CHARS_TABLE[c];
-            if (c != lowerCase && i != 0) {
-                sb.append("_");
-            }
-            sb.append(lowerCase);
-        }
-        return sb.toString();
-    }
-
     public static class PreparedReadQuery<T> {
         public final String query;
         public final Mapper<ResultSet, T> mapper;
@@ -590,32 +567,10 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         }
     }
 
-    static void test(String a, String b) {
-        if (!a.equals(b))
-            throw new AssertionError(a + " != " + b);
-    }
 
     public static void main(String[] main) throws IOException, InterruptedException {
         DBService dbService = new DBService();
         dbService.init();
-
-        test(" where name=? and age=?", dbService.prepareArguments("NameAndAge").toString());
-        test(" where name=? or age=?", dbService.prepareArguments("NameOrAge").toString());
-        test(" where name=? or age=?", dbService.prepareArguments("NameIsOrAgeIs").toString());
-        test(" where age between ? and ?", dbService.prepareArguments("AgeBetween").toString());
-        test(" where age<?", dbService.prepareArguments("AgeLessThan").toString());
-        test(" where age>?", dbService.prepareArguments("AgeGreaterThan").toString());
-        test(" where age<?", dbService.prepareArguments("AgeBefore").toString());
-        test(" where age>?", dbService.prepareArguments("AgeAfter").toString());
-        test(" where age is null", dbService.prepareArguments("AgeIsNull").toString());
-        test(" where age not null", dbService.prepareArguments("AgeIsNotNull").toString());
-        test(" where age not null", dbService.prepareArguments("AgeNotNull").toString());
-        test(" where age like ?", dbService.prepareArguments("AgeLike").toString());
-        test(" where age<>?", dbService.prepareArguments("AgeNot").toString());
-        test(" where age in ?", dbService.prepareArguments("AgeIn").toString());
-        test(" where age not in ?", dbService.prepareArguments("AgeNotIn").toString());
-        test(" where active=true", dbService.prepareArguments("ActiveTrue").toString());
-        test(" where active=false", dbService.prepareArguments("ActiveFalse").toString());
 
         DataService dataService = new DataService();
         dataService.dbService = dbService;
@@ -734,141 +689,4 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         throw new IllegalArgumentException("Cannot create mapper for " + genericMethod);
     }
 
-    protected SqlArguments prepareArguments(String s) {
-        SqlArguments arguments = new SqlArguments();
-
-        Pattern pattern = Pattern.compile("And|Or|Between|LessThan|GreaterThan|After|Before|IsNull|IsNotNull|NotNull|Like|NotLike|NotIn|IsNot|Not|Is|In|True|False");
-        Matcher matcher = pattern.matcher(s);
-
-        int position = 0;
-        while (matcher.find(position)) {
-            String operator = matcher.group();
-            String field = toSqlString(s.substring(position, matcher.start()));
-            switch (operator) {
-                case "And":
-                    if (!field.isEmpty())
-                        arguments.append(SqlOperator.EQUALS, field);
-                    arguments.append(SqlOperator.AND);
-                    break;
-                case "Or":
-                    if (!field.isEmpty())
-                        arguments.append(SqlOperator.EQUALS, field);
-                    arguments.append(SqlOperator.OR);
-                    break;
-                case "Is":
-                    arguments.append(SqlOperator.EQUALS, field);
-                    break;
-                case "Between":
-                    arguments.append(SqlOperator.BETWEEN, field);
-                    break;
-                case "LessThan":
-                    arguments.append(SqlOperator.LESS_THAN, field);
-                    break;
-                case "GreaterThan":
-                    arguments.append(SqlOperator.GREATER_THAN, field);
-                    break;
-                case "After":
-                    arguments.append(SqlOperator.AFTER, field);
-                    break;
-                case "Before":
-                    arguments.append(SqlOperator.BEFORE, field);
-                    break;
-                case "IsNull":
-                    arguments.append(SqlOperator.IS_NULL, field);
-                    break;
-                case "IsNotNull":
-                case "NotNull":
-                    arguments.append(SqlOperator.IS_NOT_NULL, field);
-                    break;
-                case "Like":
-                    arguments.append(SqlOperator.LIKE, field);
-                    break;
-                case "NotLike":
-                    arguments.append(SqlOperator.NOT_LIKE, field);
-                    break;
-                case "IsNot":
-                case "Not":
-                    arguments.append(SqlOperator.IS_NOT, field);
-                    break;
-                case "In":
-                    arguments.append(SqlOperator.IN, field);
-                    break;
-                case "NotIn":
-                    arguments.append(SqlOperator.NOT_IN, field);
-                    break;
-                case "True":
-                    arguments.append(SqlOperator.TRUE, field);
-                    break;
-                case "False":
-                    arguments.append(SqlOperator.FALSE, field);
-                    break;
-                default:
-                    throw new IllegalArgumentException("Operator " + operator + " is not supported");
-            }
-
-            position = matcher.end();
-        }
-        if (position < s.length())
-            arguments.append(SqlOperator.EQUALS, toSqlString(s.substring(position)));
-
-        return arguments;
-    }
-
-    static class SqlArguments {
-        List<Pair<SqlOperator, String>> arguments = new ArrayList<>();
-
-        public SqlArguments append(SqlOperator operator, String field) {
-            arguments.add(new Pair<>(operator, field));
-            return this;
-        }
-
-        public SqlArguments append(SqlOperator operator) {
-            return append(operator, null);
-        }
-
-        public void build(StringBuilder sb) {
-            if (arguments.isEmpty())
-                return;
-
-            sb.append(" where ");
-            for (Pair<SqlOperator, String> pair : arguments) {
-                pair.key.builder.consume(sb, pair.value);
-            }
-        }
-
-        @Override
-        public String toString() {
-            StringBuilder sb = new StringBuilder();
-            build(sb);
-            return sb.toString();
-        }
-    }
-
-    enum SqlOperator {
-        AND((sb, field) -> sb.append(" and ")),
-        OR((sb, field) -> sb.append(" or ")),
-        EQUALS((sb, field) -> sb.append(field).append("=?")),
-        LESS_THAN((sb, field) -> sb.append(field).append("<?")),
-        GREATER_THAN((sb, field) -> sb.append(field).append(">?")),
-        AFTER((sb, field) -> sb.append(field).append(">?")),
-        BEFORE((sb, field) -> sb.append(field).append("<?")),
-        IS_NULL((sb, field) -> sb.append(field).append(" is null")),
-        IS_NOT_NULL((sb, field) -> sb.append(field).append(" not null")),
-        LIKE((sb, field) -> sb.append(field).append(" like ?")),
-        NOT_LIKE((sb, field) -> sb.append(field).append(" not like ?")),
-        IN((sb, field) -> sb.append(field).append(" in ?")),
-        NOT_IN((sb, field) -> sb.append(field).append(" not in ?")),
-        IS_NOT((sb, field) -> sb.append(field).append("<>?")),
-        BETWEEN((sb, field) -> sb.append(field).append(" between ? and ?")),
-        TRUE((sb, field) -> sb.append(field).append("=true")),
-        FALSE((sb, field) -> sb.append(field).append("=false")),
-        NOOP((sb, field) -> {
-        }),;
-
-        final BiConsumer<StringBuilder, String> builder;
-
-        SqlOperator(BiConsumer<StringBuilder, String> builder) {
-            this.builder = builder;
-        }
-    }
 }
