@@ -601,6 +601,9 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         Application test = proxy.findByName("test");
         if (test != null) {
             System.out.println(proxy.exists(test.id));
+            test.name += " changed";
+            proxy.save(test);
+            System.out.println(proxy.findOne(test.id));
             proxy.delete(test);
             System.out.println(proxy.exists(test.id));
         } else {
@@ -673,11 +676,16 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         }
         if ("save".equals(name)) {
             PreparedWriteQuery preparedInsert = createPreparedInsert(clazz);
+            PreparedWriteQuery preparedUpdate = createPreparedUpdate(clazz);
             Fields<FieldInfo> fields = new Fields<>(clazz);
             FieldInfo id = fields.get("id");
             return objects -> {
                 Object object = objects[0];
-                id.reflection.setObject(object, executeQuery(preparedInsert.query, preparedInsert.setter, object));
+                if (id.reflection.getObject(object) != null) {
+                    executeUpdate(preparedUpdate.query, preparedUpdate.setter, object);
+                } else {
+                    id.reflection.setObject(object, executeQuery(preparedInsert.query, preparedInsert.setter, object));
+                }
                 return (T) object;
             };
         }
