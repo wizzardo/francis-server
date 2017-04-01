@@ -572,9 +572,6 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         DBService dbService = new DBService();
         dbService.init();
 
-        DataService dataService = new DataService();
-        dataService.dbService = dbService;
-
         Application t = dbService.get(1l, Application.class);
         System.out.println(t);
         System.out.println(dbService.list(Application.class));

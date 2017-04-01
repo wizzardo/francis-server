@@ -56,7 +56,7 @@ public class ClientWebSocketHandler<T extends ClientWebSocketHandler.ClientWebSo
 
             Long appId = dataService.saveApplicationIfNot(listener.params.get("appName"));
             listener.applicationId = appId;
-            listener.instanceId = dataService.saveInstanceIfNot(appId, listener.params);
+            listener.instanceId = dataService.saveInstanceIfNot(appId, listener.params).id;
         });
         handlers.put("listClasses", (listener, json) -> {
             controlWebSocketHandler.executeCallback(json.getAsInteger("callbackId"), json);
