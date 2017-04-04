@@ -22,6 +22,7 @@ import java.lang.reflect.Proxy;
 import java.sql.*;
 import java.util.*;
 import java.util.Date;
+import java.util.function.Supplier;
 
 import static com.wizzardo.francis.services.orm.SqlArguments.prepareArguments;
 import static com.wizzardo.francis.services.orm.SqlTools.toSqlString;
@@ -44,8 +45,6 @@ public class DBService implements Service, PostConstruct, DependencyForge {
     public void init() {
         Unchecked.call(() -> Class.forName("org.postgresql.Driver"));
 //        Unchecked.call(() -> Class.forName("com.mysql.jdbc.Driver"));
-
-        DependencyFactory.get().addForge(this);
     }
 
     public <R> R provide(Pool.UnsafeMapper<Connection, R> mapper) {
@@ -61,11 +60,16 @@ public class DBService implements Service, PostConstruct, DependencyForge {
     }
 
     @Override
-    public <T> Dependency<? extends T> forge(Class<T> clazz) {
+    public <T> Dependency<? extends T> forge(Class<? extends T> clazz, DependencyScope scope) {
         if (CrudRepository.class.isAssignableFrom(clazz))
-            return new SingletonDependency<>(createRepositoryInstance(clazz));
+            return scope.forge(clazz, () -> createRepositoryInstance(clazz));
 
         return null;
+    }
+
+    @Override
+    public <T> Dependency<? extends T> forge(Class<? extends T> clazz, Supplier<T> supplier, DependencyScope scope) {
+        return forge(clazz, scope);
     }
 
     static class FlowSql extends Flow<ResultSet> {

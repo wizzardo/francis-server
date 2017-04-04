@@ -15,8 +15,6 @@ public class App {
     public static void main(String[] args) {
         WebApplication webApplication = new WebApplication(args);
         webApplication.onSetup(app -> {
-            DependencyFactory.get(DBService.class);
-
             app.getUrlMapping()
                     .append("/ui/test", TestController.class, "index")
                     .append("/ws/client", ClientWebSocketHandler.class)
