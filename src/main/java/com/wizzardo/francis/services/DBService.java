@@ -4,7 +4,9 @@ import com.wizzardo.francis.domain.Application;
 import com.wizzardo.francis.repositories.ApplicationRepository;
 import com.wizzardo.francis.services.orm.CrudRepository;
 import com.wizzardo.francis.services.orm.SqlArguments;
-import com.wizzardo.http.framework.di.*;
+import com.wizzardo.http.framework.di.DependencyForge;
+import com.wizzardo.http.framework.di.PostConstruct;
+import com.wizzardo.http.framework.di.Service;
 import com.wizzardo.tools.cache.Cache;
 import com.wizzardo.tools.collections.flow.Flow;
 import com.wizzardo.tools.collections.flow.FlowProcessor;
@@ -60,16 +62,11 @@ public class DBService implements Service, PostConstruct, DependencyForge {
     }
 
     @Override
-    public <T> Dependency<? extends T> forge(Class<? extends T> clazz, DependencyScope scope) {
+    public <T> Supplier<T> createSupplier(Class<? extends T> clazz) {
         if (CrudRepository.class.isAssignableFrom(clazz))
-            return scope.forge(clazz, () -> createRepositoryInstance(clazz));
+            return () -> createRepositoryInstance(clazz);
 
         return null;
-    }
-
-    @Override
-    public <T> Dependency<? extends T> forge(Class<? extends T> clazz, Supplier<T> supplier, DependencyScope scope) {
-        return forge(clazz, scope);
     }
 
     static class FlowSql extends Flow<ResultSet> {
