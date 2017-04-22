@@ -3,17 +3,16 @@ package com.wizzardo.francis;
 import com.wizzardo.francis.controllers.TestController;
 import com.wizzardo.francis.handlers.ClientWebSocketHandler;
 import com.wizzardo.francis.handlers.ControlWebSocketHandler;
-import com.wizzardo.francis.services.DBService;
 import com.wizzardo.http.framework.WebApplication;
-import com.wizzardo.http.framework.di.DependencyFactory;
 
 /**
  * Created by wizzardo on 24/01/17.
  */
-public class App {
+public class App extends WebApplication {
+    WebApplication webApplication;
 
-    public static void main(String[] args) {
-        WebApplication webApplication = new WebApplication(args);
+    public App(WebApplication webApplication) {
+        this.webApplication = webApplication;
         webApplication.onSetup(app -> {
             app.getUrlMapping()
                     .append("/ui/test", TestController.class, "index")
@@ -21,7 +20,11 @@ public class App {
                     .append("/ws/server", ControlWebSocketHandler.class)
             ;
         });
+    }
 
+    public static void main(String[] args) {
+        WebApplication webApplication = new WebApplication(args);
+        new App(webApplication);
         webApplication.start();
     }
 }
