@@ -4,6 +4,7 @@ import com.wizzardo.francis.domain.Application;
 import com.wizzardo.francis.repositories.ApplicationRepository;
 import com.wizzardo.francis.services.orm.CrudRepository;
 import com.wizzardo.francis.services.orm.SqlArguments;
+import com.wizzardo.http.framework.Configuration;
 import com.wizzardo.http.framework.di.DependencyForge;
 import com.wizzardo.http.framework.di.PostConstruct;
 import com.wizzardo.http.framework.di.Service;
@@ -36,6 +37,19 @@ public class DBService implements Service, PostConstruct, DependencyForge {
 
     Cache<Class, PreparedReadQuery> preparedSelects = new Cache<>("preparedSelects", 0);
 
+    public static class DataSourceConfiguration implements Configuration {
+        String url;
+        String username;
+        String password;
+
+        @Override
+        public String prefix() {
+            return "datasource";
+        }
+    }
+
+    DataSourceConfiguration dataSourceConfiguration;
+
     Pool<Connection> connectionPool = new PoolBuilder<Connection>()
             .holder(SimpleHolder::new)
             .supplier(this::createConnection)
@@ -55,9 +69,9 @@ public class DBService implements Service, PostConstruct, DependencyForge {
 
     private Connection createConnection() {
         return Unchecked.call(() -> {
-            String url = "jdbc:postgresql://localhost/francis";
+//            String url = "jdbc:postgresql://localhost/francis";
 //            String url = "jdbc:mysql://10.0.3.124:3306/test";
-            return DriverManager.getConnection(url, "username", "password");
+            return DriverManager.getConnection(dataSourceConfiguration.url, dataSourceConfiguration.username, dataSourceConfiguration.password);
         });
     }
 
@@ -115,7 +129,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
     }
 
     public <R> R executeQuery(String sql, Object[] args, Mapper<Flow<ResultSet>, R> mapper) {
-        System.out.println("executeQuery: " + sql + " with args: " + Arrays.toString(args));
+//        System.out.println("executeQuery: " + sql + " with args: " + Arrays.toString(args));
         return provide(connection -> {
             PreparedStatement statement = connection.prepareStatement(sql);
             if (args != null) {
@@ -128,7 +142,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
     }
 
     public <T, R> R executeQuery(String sql, SqlSetter<T> setter, T t, Mapper<Flow<ResultSet>, R> mapper) {
-        System.out.println("executeQuery: " + sql);
+//        System.out.println("executeQuery: " + sql);
         return provide(connection -> {
             PreparedStatement statement = connection.prepareStatement(sql);
             setter.bind(t, statement);
@@ -160,7 +174,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
     }
 
     public <T> int executeUpdate(String sql, SqlSetter<T> setter, T t) {
-        System.out.println("executeQuery: " + sql);
+//        System.out.println("executeQuery: " + sql);
         return provide(connection -> {
             PreparedStatement statement = connection.prepareStatement(sql);
             setter.bind(t, statement);
@@ -169,7 +183,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
     }
 
     public <R> R execute(String sql, Object[] args, Mapper<Flow<ResultSet>, R> mapper) {
-        System.out.println("execute: " + sql + " with args: " + Arrays.toString(args));
+//        System.out.println("execute: " + sql + " with args: " + Arrays.toString(args));
         return provide(connection -> {
             PreparedStatement statement = connection.prepareStatement(sql);
             for (int i = 0; i < args.length; i++) {
@@ -432,7 +446,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         if (clazz == String.class)
             return rs -> Unchecked.call(() -> (T) rs.getString(1));
         if (clazz == Date.class)
-            return rs -> Unchecked.call(() -> (T) rs.getDate(1));
+            return rs -> Unchecked.call(() -> (T) rs.getTimestamp(1));
         if (Iterable.class.isAssignableFrom(clazz))
             if (withCollections)
                 return getMapper(returnType.type(0), false);
@@ -475,7 +489,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
                 if (field.generic.clazz.equals(String.class)) {
                     return (t, rs) -> reflection.setObject(t, rs.getString(i));
                 } else if (field.generic.clazz.equals(Date.class)) {
-                    return (t, rs) -> reflection.setObject(t, rs.getDate(i));
+                    return (t, rs) -> reflection.setObject(t, rs.getTimestamp(i));
                 } else if (field.generic.clazz.equals(Boolean.class)) {
                     return (t, rs) -> reflection.setObject(t, rs.getBoolean(i));
                 } else if (field.generic.clazz.equals(Byte.class)) {
@@ -659,11 +673,11 @@ public class DBService implements Service, PostConstruct, DependencyForge {
             return objects -> executeQuery(sql, objects, finalMapper);
         }
 
-        if ("count".equals(name)) {
+        if ("count".equals(verb)) {
             String sql = "select count(id) from " + toSqlString(clazz.getSimpleName()) + arguments;
             return objects -> executeQuery(sql, objects, finalMapper);
         }
-        if ("delete".equals(name)) {
+        if ("delete".equals(verb)) {
             String sql = "delete from " + toSqlString(clazz.getSimpleName()) + arguments;
             if (args.size() == 1 && args.get(0).clazz == clazz) {
                 Fields<FieldInfo> fields = new Fields<>(clazz);
@@ -672,7 +686,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
             } else
                 return objects -> (T) (Integer) executeUpdate(sql, objects);
         }
-        if ("save".equals(name)) {
+        if ("save".equals(verb)) {
             PreparedWriteQuery preparedInsert = createPreparedInsert(clazz);
             PreparedWriteQuery preparedUpdate = createPreparedUpdate(clazz);
             Fields<FieldInfo> fields = new Fields<>(clazz);
@@ -687,7 +701,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
                 return (T) object;
             };
         }
-        if ("exists".equals(name)) {
+        if ("exists".equals(verb)) {
             String sql = "select count(id)=1 from " + toSqlString(clazz.getSimpleName()) + arguments;
             return objects -> executeQuery(sql, objects, finalMapper);
         }
