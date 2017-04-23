@@ -41,6 +41,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         String url;
         String username;
         String password;
+        int maxPoolSize = 16;
 
         @Override
         public String prefix() {
@@ -50,15 +51,17 @@ public class DBService implements Service, PostConstruct, DependencyForge {
 
     DataSourceConfiguration dataSourceConfiguration;
 
-    Pool<Connection> connectionPool = new PoolBuilder<Connection>()
-            .holder(SimpleHolder::new)
-            .supplier(this::createConnection)
-            .queue(PoolBuilder.createSharedQueueSupplier())
-            .limitSize(16)
-            .build();
+    Pool<Connection> connectionPool;
 
     @Override
     public void init() {
+        connectionPool = new PoolBuilder<Connection>()
+                .holder(SimpleHolder::new)
+                .supplier(this::createConnection)
+                .queue(PoolBuilder.createSharedQueueSupplier())
+                .limitSize(dataSourceConfiguration.maxPoolSize)
+                .build();
+
         Unchecked.call(() -> Class.forName("org.postgresql.Driver"));
 //        Unchecked.call(() -> Class.forName("com.mysql.jdbc.Driver"));
     }
