@@ -12,6 +12,7 @@ import com.wizzardo.tools.cache.Cache;
 import com.wizzardo.tools.collections.flow.Flow;
 import com.wizzardo.tools.collections.flow.FlowProcessor;
 import com.wizzardo.tools.interfaces.Mapper;
+import com.wizzardo.tools.io.IOTools;
 import com.wizzardo.tools.misc.Unchecked;
 import com.wizzardo.tools.misc.pool.Pool;
 import com.wizzardo.tools.misc.pool.PoolBuilder;
@@ -41,6 +42,8 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         String url;
         String username;
         String password;
+        String driver;
+        boolean applySchemaOnStart;
         int maxPoolSize = 16;
 
         @Override
@@ -49,7 +52,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         }
     }
 
-    DataSourceConfiguration dataSourceConfiguration;
+    DataSourceConfiguration config;
 
     Pool<Connection> connectionPool;
 
@@ -59,11 +62,33 @@ public class DBService implements Service, PostConstruct, DependencyForge {
                 .holder(SimpleHolder::new)
                 .supplier(this::createConnection)
                 .queue(PoolBuilder.createSharedQueueSupplier())
-                .limitSize(dataSourceConfiguration.maxPoolSize)
+                .limitSize(config.maxPoolSize)
                 .build();
 
-        Unchecked.call(() -> Class.forName("org.postgresql.Driver"));
-//        Unchecked.call(() -> Class.forName("com.mysql.jdbc.Driver"));
+        try {
+            if (config.driver != null && !config.driver.isEmpty()) {
+                Class.forName(config.driver);
+            } else if (config.url.toLowerCase().contains("postgresql")) {
+                Class.forName("org.postgresql.Driver");
+            } else if (config.url.toLowerCase().contains("mysql")) {
+                Class.forName("com.mysql.jdbc.Driver");
+            } else if (config.url.toLowerCase().contains("jdbc:h2:")) {
+                Class.forName("org.h2.Driver");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        if (config.applySchemaOnStart) {
+            Unchecked.run(() -> {
+                String scheme = new String(IOTools.bytes(DBService.class.getResourceAsStream("/Schema.sql")));
+                System.out.println("applying scheme:");
+                for (String s : scheme.split(";")) {
+                    System.out.println(s);
+                    execute(s);
+                }
+            });
+        }
     }
 
     public <R> R provide(Pool.UnsafeMapper<Connection, R> mapper) {
@@ -74,7 +99,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         return Unchecked.call(() -> {
 //            String url = "jdbc:postgresql://localhost/francis";
 //            String url = "jdbc:mysql://10.0.3.124:3306/test";
-            return DriverManager.getConnection(dataSourceConfiguration.url, dataSourceConfiguration.username, dataSourceConfiguration.password);
+            return DriverManager.getConnection(config.url, config.username, config.password);
         });
     }
 
