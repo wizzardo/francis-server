@@ -190,6 +190,23 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         });
     }
 
+    public <T> Long executeInsert(String sql, SqlSetter<T> setter, T t) {
+//        System.out.println("executeQuery: " + sql + " with args: " + Arrays.toString(args));
+        return provide(connection -> {
+            PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+            setter.bind(t, statement);
+            int inserted = statement.executeUpdate();
+            if (inserted > 0) {
+                ResultSet resultSet = statement.getGeneratedKeys();
+                if (resultSet.next())
+                    return resultSet.getLong(1);
+                else
+                    throw new IllegalStateException("Cannot read generated key: " + sql + ", values: " + t);
+            } else
+                throw new IllegalStateException("Insert returns 0 results: " + sql + ", values: " + t);
+        });
+    }
+
     public int executeUpdate(String sql, Object[] args) {
 //        System.out.println("executeUpdate: " + sql + " with args: " + Arrays.toString(args));
         return provide(connection -> {
@@ -376,7 +393,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
             }
         }
 
-        sb.append(") values (").append(fieldsBuilder).append(")  RETURNING ID");
+        sb.append(") values (").append(fieldsBuilder).append(")");
         SqlSetter<T>[] setters = l.toArray(new SqlSetter[l.size()]);
 
         preparedWriteQuery = new PreparedWriteQuery<>(sb.toString(),
@@ -724,7 +741,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
                 if (id.reflection.getObject(object) != null) {
                     executeUpdate(preparedUpdate.query, preparedUpdate.setter, object);
                 } else {
-                    id.reflection.setObject(object, executeQuery(preparedInsert.query, preparedInsert.setter, object));
+                    id.reflection.setObject(object, executeInsert(preparedInsert.query, preparedInsert.setter, object));
                 }
                 return (T) object;
             };
