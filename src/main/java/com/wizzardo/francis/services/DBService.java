@@ -533,6 +533,14 @@ public class DBService implements Service, PostConstruct, DependencyForge {
             case OBJECT:
                 if (field.generic.clazz.equals(String.class)) {
                     return (t, rs) -> reflection.setObject(t, rs.getString(i));
+                } else if (field.generic.clazz.isEnum()) {
+                    return (t, rs) -> {
+                        String string = rs.getString(i);
+                        if (string == null)
+                            reflection.setObject(t, null);
+                        else
+                            reflection.setObject(t, Enum.valueOf(field.generic.clazz, string));
+                    };
                 } else if (field.generic.clazz.equals(Date.class)) {
                     return (t, rs) -> reflection.setObject(t, rs.getTimestamp(i));
                 } else if (field.generic.clazz.equals(Boolean.class)) {
@@ -580,6 +588,14 @@ public class DBService implements Service, PostConstruct, DependencyForge {
             case OBJECT:
                 if (field.generic.clazz.equals(String.class)) {
                     return (t, s) -> s.setString(i, (String) reflection.getObject(t));
+                } else if (field.generic.clazz.isEnum()) {
+                    return (t, s) -> {
+                        Object object = reflection.getObject(t);
+                        if (object == null)
+                            s.setString(i, null);
+                        else
+                            s.setString(i, String.valueOf(object));
+                    };
                 } else if (field.generic.clazz.equals(Date.class)) {
                     return (t, s) -> s.setDate(i, new java.sql.Date(((Date) reflection.getObject(t)).getTime()));
                 } else if (field.generic.clazz.equals(java.sql.Date.class)) {
