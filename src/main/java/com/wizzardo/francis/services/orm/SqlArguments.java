@@ -35,8 +35,8 @@ public class SqlArguments {
         test(" where age not null", prepareArguments("AgeNotNull").toString());
         test(" where age like ?", prepareArguments("AgeLike").toString());
         test(" where age<>?", prepareArguments("AgeNot").toString());
-        test(" where age in ?", prepareArguments("AgeIn").toString());
-        test(" where age not in ?", prepareArguments("AgeNotIn").toString());
+        test(" where age in (?)", prepareArguments("AgeIn").toString());
+        test(" where age not in (?)", prepareArguments("AgeNotIn").toString());
         test(" where active=true", prepareArguments("ActiveTrue").toString());
         test(" where active=false", prepareArguments("ActiveFalse").toString());
     }
@@ -44,6 +44,9 @@ public class SqlArguments {
     protected List<Pair<SqlOperator, String>> arguments = new ArrayList<>();
 
     public SqlArguments append(SqlOperator operator, String field) {
+        if (field != null && field.isEmpty())
+            throw new IllegalArgumentException("Field cannot be empty");
+
         arguments.add(new Pair<>(operator, field));
         return this;
     }
@@ -67,6 +70,14 @@ public class SqlArguments {
         StringBuilder sb = new StringBuilder();
         build(sb);
         return sb.toString();
+    }
+
+    public int count() {
+        int args = 0;
+        for (Pair<SqlOperator, String> pair : arguments) {
+            args += pair.key.args;
+        }
+        return args;
     }
 
     public static SqlArguments prepareArguments(String s) {

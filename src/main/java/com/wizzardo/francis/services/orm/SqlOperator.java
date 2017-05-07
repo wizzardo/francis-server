@@ -8,27 +8,33 @@ import com.wizzardo.tools.interfaces.BiConsumer;
 public enum SqlOperator {
     AND((sb, field) -> sb.append(" and ")),
     OR((sb, field) -> sb.append(" or ")),
-    EQUALS((sb, field) -> sb.append(field).append("=?")),
-    LESS_THAN((sb, field) -> sb.append(field).append("<?")),
-    GREATER_THAN((sb, field) -> sb.append(field).append(">?")),
-    AFTER((sb, field) -> sb.append(field).append(">?")),
-    BEFORE((sb, field) -> sb.append(field).append("<?")),
-    IS_NULL((sb, field) -> sb.append(field).append(" is null")),
+    EQUALS(1, (sb, field) -> sb.append(field).append("=?")),
+    LESS_THAN(1, (sb, field) -> sb.append(field).append("<?")),
+    GREATER_THAN(1, (sb, field) -> sb.append(field).append(">?")),
+    AFTER(1, (sb, field) -> sb.append(field).append(">?")),
+    BEFORE(1, (sb, field) -> sb.append(field).append("<?")),
+    IS_NULL(1, (sb, field) -> sb.append(field).append(" is null")),
     IS_NOT_NULL((sb, field) -> sb.append(field).append(" not null")),
-    LIKE((sb, field) -> sb.append(field).append(" like ?")),
-    NOT_LIKE((sb, field) -> sb.append(field).append(" not like ?")),
-    IN((sb, field) -> sb.append(field).append(" in ?")),
-    NOT_IN((sb, field) -> sb.append(field).append(" not in ?")),
-    IS_NOT((sb, field) -> sb.append(field).append("<>?")),
-    BETWEEN((sb, field) -> sb.append(field).append(" between ? and ?")),
+    LIKE(1, (sb, field) -> sb.append(field).append(" like ?")),
+    NOT_LIKE(1, (sb, field) -> sb.append(field).append(" not like ?")),
+    IN(1, (sb, field) -> sb.append(field).append(" in (?)")),
+    NOT_IN(1, (sb, field) -> sb.append(field).append(" not in (?)")),
+    IS_NOT(1, (sb, field) -> sb.append(field).append("<>?")),
+    BETWEEN(2, (sb, field) -> sb.append(field).append(" between ? and ?")),
     TRUE((sb, field) -> sb.append(field).append("=true")),
     FALSE((sb, field) -> sb.append(field).append("=false")),
     NOOP((sb, field) -> {
     }),;
 
     final BiConsumer<StringBuilder, String> builder;
+    final int args;
 
     SqlOperator(BiConsumer<StringBuilder, String> builder) {
+        this(0, builder);
+    }
+
+    SqlOperator(int args, BiConsumer<StringBuilder, String> builder) {
+        this.args = args;
         this.builder = builder;
     }
 }
