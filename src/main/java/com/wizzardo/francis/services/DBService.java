@@ -162,7 +162,11 @@ public class DBService implements Service, PostConstruct, DependencyForge {
             PreparedStatement statement = connection.prepareStatement(sql);
             if (args != null) {
                 for (int i = 0; i < args.length; i++) {
-                    statement.setObject(i + 1, args[i]);
+                    Object arg = args[i];
+                    if (arg.getClass().equals(Date.class))
+                        statement.setTimestamp(i + 1, new java.sql.Timestamp(((Date) arg).getTime()));
+                    else
+                        statement.setObject(i + 1, arg);
                 }
             }
             return mapper.map(FlowSql.of(statement.executeQuery()));
@@ -597,7 +601,13 @@ public class DBService implements Service, PostConstruct, DependencyForge {
                             s.setString(i, String.valueOf(object));
                     };
                 } else if (field.generic.clazz.equals(Date.class)) {
-                    return (t, s) -> s.setDate(i, new java.sql.Date(((Date) reflection.getObject(t)).getTime()));
+                    return (t, s) -> {
+                        Date date = (Date) reflection.getObject(t);
+                        if (date == null)
+                            s.setDate(i, null);
+                        else
+                            s.setTimestamp(i, new java.sql.Timestamp(date.getTime()));
+                    };
                 } else if (field.generic.clazz.equals(java.sql.Date.class)) {
                     return (t, s) -> s.setDate(i, (java.sql.Date) reflection.getObject(t));
                 } else if (field.generic.clazz.equals(Boolean.class)) {
