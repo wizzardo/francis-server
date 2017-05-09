@@ -13,6 +13,7 @@ import com.wizzardo.tools.collections.flow.Flow;
 import com.wizzardo.tools.collections.flow.FlowProcessor;
 import com.wizzardo.tools.interfaces.Mapper;
 import com.wizzardo.tools.io.IOTools;
+import com.wizzardo.tools.misc.Lazy;
 import com.wizzardo.tools.misc.Unchecked;
 import com.wizzardo.tools.misc.pool.Pool;
 import com.wizzardo.tools.misc.pool.PoolBuilder;
@@ -20,6 +21,9 @@ import com.wizzardo.tools.misc.pool.SimpleHolder;
 import com.wizzardo.tools.reflection.*;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
@@ -699,12 +703,41 @@ public class DBService implements Service, PostConstruct, DependencyForge {
     }
 
     protected <T> T createRepositoryInstance(Class<T> repositoryClass) {
+        Lazy<Constructor<MethodHandles.Lookup>> constructorLazy = new Lazy<>(() -> Unchecked.call(() -> {
+            Constructor<MethodHandles.Lookup> constructor = MethodHandles.Lookup.class.getDeclaredConstructor(Class.class, int.class);
+            if (!constructor.isAccessible()) {
+                constructor.setAccessible(true);
+            }
+            return constructor;
+        }));
+
         Map<Method, Mapper<Object[], Object>> methods = prepareMethods(repositoryClass);
         Object o = Proxy.newProxyInstance(
                 repositoryClass.getClassLoader(),
                 new Class[]{repositoryClass},
-                (proxy, method, args) -> methods.get(method).map(args));
+                (proxy, method, args) -> {
+                    Mapper<Object[], Object> mapper = methods.get(method);
+                    if (mapper != null)
+                        return mapper.map(args);
+                    else if (method.getName().equals("toString") && method.getParameterCount() == 0)
+                        return repositoryClass.getSimpleName();
+                    else if (method.isDefault()) {
+                        Class<?> declaringClass = method.getDeclaringClass();
+                        MethodHandle methodHandle = constructorLazy.get().newInstance(declaringClass, MethodHandles.Lookup.PRIVATE)
+                                .unreflectSpecial(method, declaringClass)
+                                .bindTo(proxy);
+                        methods.put(method, objects -> {
+                            try {
+                                return methodHandle.invokeWithArguments(objects);
+                            } catch (Throwable throwable) {
+                                throw new IllegalStateException(throwable);
+                            }
+                        });
 
+                        return methodHandle.invokeWithArguments(args);
+                    } else
+                        throw new IllegalStateException("Method " + method + " is not implemented");
+                });
         return (T) o;
     }
 
