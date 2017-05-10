@@ -758,7 +758,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         return mappers;
     }
 
-    protected <T> Mapper<Object[], T> createMapper(Class clazz, GenericMethod genericMethod) {
+    protected <T> Mapper<Object[], T> createMapper(Class<T> clazz, GenericMethod genericMethod) {
         //TODO: http://docs.spring.io/spring-data/jpa/docs/1.4.3.RELEASE/reference/html/repositories.html#repositories.query-methods.query-creation
         //TODO: http://docs.spring.io/spring-data/jpa/docs/1.4.3.RELEASE/reference/html/jpa.repositories.html#jpa.query-methods.query-creation
         String name = genericMethod.method.getName();
@@ -770,10 +770,19 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         String[] parts = name.split("By", 2);
         String verb = parts[0];
         String by = parts.length == 2 ? parts[1] : (args.size() == 1 ? "id" : "");
-        SqlArguments arguments = prepareArguments(by);
+        SqlArguments arguments;
+        try {
+            arguments = prepareArguments(by);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Cannot create mapper for " + genericMethod, e);
+        }
+
+        if (arguments.count() != args.size())
+            throw new IllegalStateException("Parsed number of arguments doesn't match method arguments: " + genericMethod.method + " - " + arguments.count() + " != " + args.size());
 
         if (verb.startsWith("find") || verb.startsWith("read") || verb.startsWith("get")) {
-            String sql = prepareSelect(clazz).query + arguments;
+            PreparedReadQuery<T> preparedReadQuery = prepareSelect(clazz);
+            String sql = preparedReadQuery.query + arguments;
             return objects -> executeQuery(sql, objects, finalMapper);
         }
 
@@ -785,8 +794,8 @@ public class DBService implements Service, PostConstruct, DependencyForge {
             String sql = "delete from " + toSqlString(clazz.getSimpleName()) + arguments;
             if (args.size() == 1 && args.get(0).clazz == clazz) {
                 Fields<FieldInfo> fields = new Fields<>(clazz);
-                SqlSetter<Object> setter = getSetter(clazz, fields.get("id"), 1);
-                return objects -> (T) (Integer) executeUpdate(sql, setter, objects[0]);
+                SqlSetter<T> setter = getSetter(clazz, fields.get("id"), 1);
+                return objects -> (T) (Integer) executeUpdate(sql, setter, (T) objects[0]);
             } else
                 return objects -> (T) (Integer) executeUpdate(sql, objects);
         }
