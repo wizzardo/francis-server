@@ -15,9 +15,9 @@ import com.wizzardo.tools.interfaces.Mapper;
 import com.wizzardo.tools.io.IOTools;
 import com.wizzardo.tools.misc.Lazy;
 import com.wizzardo.tools.misc.Unchecked;
+import com.wizzardo.tools.misc.pool.Holder;
 import com.wizzardo.tools.misc.pool.Pool;
 import com.wizzardo.tools.misc.pool.PoolBuilder;
-import com.wizzardo.tools.misc.pool.SimpleHolder;
 import com.wizzardo.tools.reflection.*;
 
 import java.io.IOException;
@@ -63,7 +63,24 @@ public class DBService implements Service, PostConstruct, DependencyForge {
     @Override
     public void init() {
         connectionPool = new PoolBuilder<Connection>()
-                .holder(SimpleHolder::new)
+                .holder((pool, value) -> new Holder<Connection>() {
+                    Connection v = value;
+
+                    @Override
+                    public Connection get() {
+                        Unchecked.run(() -> {
+                            if (v.isClosed()) {
+                                v = pool.create();
+                            }
+                        });
+                        return pool.reset(v);
+                    }
+
+                    @Override
+                    public void close() {
+                        pool.release(this);
+                    }
+                })
                 .supplier(this::createConnection)
                 .queue(PoolBuilder.createSharedQueueSupplier())
                 .limitSize(config.maxPoolSize)
