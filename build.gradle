@@ -1,7 +1,22 @@
-import java.text.SimpleDateFormat
+
+buildscript {
+    repositories {
+        mavenCentral()
+        maven {
+            url "https://oss.sonatype.org/content/repositories/snapshots/"
+        }
+        maven {
+            url "https://plugins.gradle.org/m2/"
+        }
+    }
+    dependencies {
+        classpath 'com.wizzardo.tools:tools-gradle-build:0.24-SNAPSHOT'
+    }
+}
 
 apply plugin: 'java'
 apply plugin: 'application'
+apply plugin: 'tools-gradle-build'
 
 repositories {
     jcenter()
@@ -18,47 +33,26 @@ group 'com.wizzardo'
 version '0.1-SNAPSHOT'
 
 mainClassName = "com.wizzardo.francis.App"
+ext {
+    descriptionString = 'Java HTTP-server, based on epoll-lib'
+}
+apply from: 'gradle/sonatype.gradle'
+
 
 repositories {
     mavenCentral()
+    maven {
+        url "https://oss.sonatype.org/content/repositories/snapshots/"
+    }
 }
 
 dependencies {
-    compile 'com.wizzardo:epoll:0.2+'
-    compile 'com.wizzardo:http:0.2+'
-    compile 'com.wizzardo:datadog-jvm:0.4+'
-    compile 'com.wizzardo.tools:tools:0.19+'
+    implementation 'com.wizzardo:http:0.5-SNAPSHOT'
+    implementation 'com.wizzardo:datadog-jvm:0.4+'
+    implementation 'com.wizzardo.tools:tools:0.24-SNAPSHOT'
 
 //    compile 'mysql:mysql-connector-java:5.1.41'
-    compile 'org.postgresql:postgresql:9.4.1212'
+    implementation 'org.postgresql:postgresql:42.6.0'
 
-    testCompile group: 'junit', name: 'junit', version: '4.11'
-}
-
-
-task fatJar(type: Jar) {
-    def revision = "git rev-parse HEAD".execute().text.trim()
-    def branchName = System.getenv().get('GIT_BRANCH')
-    if (!branchName) {
-        branchName = "git rev-parse --abbrev-ref HEAD".execute().text.trim()
-        if (branchName == revision) {
-            branchName = "git branch -a --contains ${"git rev-parse --verify HEAD".execute().text}".execute()
-                    .text.trim().readLines()
-                    .find({ it.contains('origin/') })?.with({ it.split('origin/')[1].trim() }) ?: ''
-        }
-    }
-
-    manifest {
-        attributes(
-                "Main-Class": "${{ -> project.hasProperty('mainClassName') ? mainClassName : '' }}",
-                "gitRevision": revision,
-                "gitBranch": branchName,
-                "buildTime": new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").with({ it.setTimeZone(TimeZone.getTimeZone("UTC")); it }).format(new Date()),
-                "version": "${{ -> version }}",
-                "appName": project.name
-        )
-    }
-    baseName = project.name + '-all'
-    from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
-    with jar
+    testImplementation group: 'junit', name: 'junit', version: '4.13.2'
 }

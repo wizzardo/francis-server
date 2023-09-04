@@ -14,12 +14,15 @@ import com.wizzardo.tools.collections.flow.FlowProcessor;
 import com.wizzardo.tools.interfaces.Mapper;
 import com.wizzardo.tools.io.IOTools;
 import com.wizzardo.tools.misc.Lazy;
+import com.wizzardo.tools.misc.TextTools;
 import com.wizzardo.tools.misc.Unchecked;
 import com.wizzardo.tools.misc.pool.Holder;
 import com.wizzardo.tools.misc.pool.Pool;
 import com.wizzardo.tools.misc.pool.PoolBuilder;
 import com.wizzardo.tools.reflection.*;
+import org.postgresql.ds.PGSimpleDataSource;
 
+import javax.sql.DataSource;
 import java.io.IOException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -60,8 +63,57 @@ public class DBService implements Service, PostConstruct, DependencyForge {
 
     Pool<Connection> connectionPool;
 
+    String substringBefore(String src, String before) {
+        int i = src.indexOf(before);
+        if (i == -1)
+            return src;
+        return src.substring(0, i);
+    }
+
+    String substringAfter(String src, String after) {
+        int i = src.indexOf(after);
+        if (i == -1)
+            return src;
+        return src.substring(i + after.length());
+    }
+
+    String substringAfterLast(String src, String after) {
+        int i = src.lastIndexOf(after);
+        if (i == -1)
+            return src;
+        return src.substring(i + after.length());
+    }
+
     @Override
     public void init() {
+        DataSource dataSource;
+        if(config.url.contains("postgresql://")){
+            String dbName = substringAfterLast(config.url, "/");
+            String host = substringBefore(substringAfter(config.url,"://"),"/");
+
+            System.out.println("creating PGConnectionPoolDataSource");
+            System.out.println("host: " + host);
+            System.out.println("dbName: " + dbName);
+            System.out.println("username: " + config.username);
+            System.out.println("password: " + config.password);
+
+            PGSimpleDataSource poolDataSource =new PGSimpleDataSource();
+            poolDataSource.setDatabaseName(substringBefore(dbName,"?"));
+            poolDataSource.setServerName(substringBefore(host,":"));
+            poolDataSource.setPortNumber(TextTools.asInt(substringAfter(host, ":"), 5432));
+            poolDataSource.setUser(config.username);
+            poolDataSource.setPassword(config.password);
+            poolDataSource.setBinaryTransfer(true);
+//        poolDataSource.ssl = true
+//        poolDataSource.sslMode = "require"
+            poolDataSource.setTcpKeepAlive(true);
+            poolDataSource.setPreparedStatementCacheSizeMiB(1);
+            poolDataSource.setPreparedStatementCacheQueries(32);
+            poolDataSource.setSslMode("disable");
+            dataSource = poolDataSource;
+        } else
+            throw new IllegalArgumentException("DB is not configured");
+
         connectionPool = new PoolBuilder<Connection>()
                 .holder((pool, value) -> new Holder<Connection>() {
                     Connection v = value;
@@ -81,7 +133,7 @@ public class DBService implements Service, PostConstruct, DependencyForge {
                         pool.release(this);
                     }
                 })
-                .supplier(this::createConnection)
+                .supplier(() -> Unchecked.call(() -> dataSource.getConnection()))
                 .queue(PoolBuilder.createSharedQueueSupplier())
                 .limitSize(config.maxPoolSize)
                 .build();
@@ -120,7 +172,10 @@ public class DBService implements Service, PostConstruct, DependencyForge {
         return Unchecked.call(() -> {
 //            String url = "jdbc:postgresql://localhost/francis";
 //            String url = "jdbc:mysql://10.0.3.124:3306/test";
-            return DriverManager.getConnection(config.url, config.username, config.password);
+            if (config.username != null && config.password != null)
+                return DriverManager.getConnection(config.url, config.username, config.password);
+            else
+                return DriverManager.getConnection(config.url);
         });
     }
 

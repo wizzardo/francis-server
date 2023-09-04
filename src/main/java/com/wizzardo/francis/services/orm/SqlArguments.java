@@ -1,6 +1,6 @@
 package com.wizzardo.francis.services.orm;
 
-import com.wizzardo.tools.collections.Pair;
+import com.wizzardo.tools.misc.Pair;
 
 import java.util.ArrayList;
 import java.util.List;
